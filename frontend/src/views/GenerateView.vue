@@ -147,7 +147,9 @@ function retrySingleImage(index: number) {
   // 构建上下文信息
   const context = {
     fullOutline: store.outline.raw || '',
-    userTopic: store.topic || ''
+    userTopic: store.topic || '',
+    imageSize: store.imageSize,
+    aspectRatio: store.imageAspectRatio
   }
 
   // 异步执行重绘，不阻塞
@@ -330,7 +332,13 @@ onMounted(async () => {
     // userImages - 用户上传的参考图片
     store.userImages.length > 0 ? store.userImages : undefined,
     // userTopic - 用户原始输入
-    store.topic
+    store.topic,
+    // imageSize - 用户选择的基准分辨率
+    store.imageSize,
+    // aspectRatio - 用户选择的宽高比
+    store.imageAspectRatio,
+    // imageSizeBase - 用户选择的档位 1K/2K/4K
+    store.imageSizeBase
   )
 })
 

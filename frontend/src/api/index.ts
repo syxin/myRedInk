@@ -33,12 +33,16 @@ export interface FinishEvent {
 // 生成大纲（支持图片上传）
 export async function generateOutline(
   topic: string,
-  images?: File[]
+  images?: File[],
+  pageCount?: number
 ): Promise<OutlineResponse & { has_images?: boolean }> {
   // 如果有图片，使用 FormData
   if (images && images.length > 0) {
     const formData = new FormData()
     formData.append('topic', topic)
+    if (pageCount && pageCount > 0) {
+      formData.append('page_count', String(pageCount))
+    }
     images.forEach((file) => {
       formData.append('images', file)
     })
@@ -56,9 +60,11 @@ export async function generateOutline(
   }
 
   // 无图片，使用 JSON
-  const response = await axios.post<OutlineResponse>(`${API_BASE_URL}/outline`, {
-    topic
-  })
+  const payload: Record<string, any> = { topic }
+  if (pageCount && pageCount > 0) {
+    payload.page_count = pageCount
+  }
+  const response = await axios.post<OutlineResponse>(`${API_BASE_URL}/outline`, payload)
   return response.data
 }
 
@@ -77,6 +83,8 @@ export async function regenerateImage(
   context?: {
     fullOutline?: string
     userTopic?: string
+    imageSize?: string | null
+    aspectRatio?: string | null
   }
 ): Promise<{ success: boolean; index: number; image_url?: string; error?: string }> {
   const response = await axios.post(`${API_BASE_URL}/regenerate`, {
@@ -84,7 +92,9 @@ export async function regenerateImage(
     page,
     use_reference: useReference,
     full_outline: context?.fullOutline,
-    user_topic: context?.userTopic
+    user_topic: context?.userTopic,
+    image_size: context?.imageSize || undefined,
+    aspect_ratio: context?.aspectRatio || undefined
   })
   return response.data
 }
@@ -625,7 +635,10 @@ export async function generateImagesPost(
   onFinish: (event: FinishEvent) => void,
   onStreamError: (error: Error) => void,
   userImages?: File[],
-  userTopic?: string
+  userTopic?: string,
+  imageSize?: string | null,
+  aspectRatio?: string | null,
+  imageSizeBase?: string | null
 ) {
   try {
     // 将用户图片转换为 base64
@@ -653,7 +666,10 @@ export async function generateImagesPost(
         task_id: taskId,
         full_outline: fullOutline,
         user_images: userImagesBase64.length > 0 ? userImagesBase64 : undefined,
-        user_topic: userTopic || ''
+        user_topic: userTopic || '',
+        image_size: imageSize || undefined,
+        aspect_ratio: aspectRatio || undefined,
+        image_size_base: imageSizeBase || undefined
       })
     })
 

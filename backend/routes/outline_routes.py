@@ -42,9 +42,9 @@ def create_outline_blueprint():
 
         try:
             # 解析请求数据
-            topic, images = _parse_outline_request()
+            topic, images, page_count = _parse_outline_request()
 
-            log_request('/outline', {'topic': topic, 'images': images})
+            log_request('/outline', {'topic': topic, 'images': images, 'page_count': page_count})
 
             # 验证必填参数
             if not topic:
@@ -57,7 +57,11 @@ def create_outline_blueprint():
             # 调用大纲生成服务
             logger.info(f"🔄 开始生成大纲，主题: {topic[:50]}...")
             outline_service = get_outline_service()
-            result = outline_service.generate_outline(topic, images if images else None)
+            result = outline_service.generate_outline(
+                topic,
+                images if images else None,
+                page_count=page_count
+            )
 
             # 记录结果
             elapsed = time.time() - start_time
@@ -88,11 +92,12 @@ def _parse_outline_request():
     2. application/json - 用于 base64 图片
 
     返回：
-        tuple: (topic, images) - 主题和图片列表
+        tuple: (topic, images, page_count) - 主题、图片列表、用户指定的生成页数（None 表示未指定）
     """
     # 检查是否是 multipart/form-data（带图片文件）
     if request.content_type and 'multipart/form-data' in request.content_type:
         topic = request.form.get('topic')
+        page_count = _coerce_page_count(request.form.get('page_count'))
         images = []
 
         # 获取上传的图片文件
@@ -103,11 +108,12 @@ def _parse_outline_request():
                     image_data = file.read()
                     images.append(image_data)
 
-        return topic, images
+        return topic, images, page_count
 
     # JSON 请求（无图片或 base64 图片）
     data = request.get_json()
     topic = data.get('topic')
+    page_count = _coerce_page_count(data.get('page_count'))
     images = []
 
     # 支持 base64 格式的图片
@@ -119,4 +125,21 @@ def _parse_outline_request():
                 img_b64 = img_b64.split(',')[1]
             images.append(base64.b64decode(img_b64))
 
-    return topic, images
+    return topic, images, page_count
+
+
+def _coerce_page_count(raw):
+    """将前端传入的页数字符串标准化为整数，无效值返回 None"""
+    if raw is None or raw == '':
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.warning(f"忽略无效的 page_count 参数: {raw!r}")
+        return None
+    # 限制在合理范围
+    if value < 1:
+        return None
+    if value > 30:
+        value = 30
+    return value

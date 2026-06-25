@@ -24,6 +24,8 @@
         :loading="loading"
         @generate="handleGenerate"
         @imagesChange="handleImagesChange"
+        @pageCountChange="handlePageCountChange"
+        @resolutionChange="handleResolutionChange"
       />
     </div>
 
@@ -69,12 +71,38 @@ const composerRef = ref<InstanceType<typeof ComposerInput> | null>(null)
 
 // 上传的图片文件
 const uploadedImageFiles = ref<File[]>([])
+// 用户指定的生成张数（null 表示使用默认）
+const pageCount = ref<number | null>(null)
+// 用户指定的分辨率与比例（null 表示使用默认）
+const imageSize = ref<string | null>(null)
+const imageSizeBase = ref<string | null>(null)   // 档位名 "1K"/"2K"/"4K"
+const imageAspectRatio = ref<string | null>(null)
 
 /**
  * 处理图片变化
  */
 function handleImagesChange(images: File[]) {
   uploadedImageFiles.value = images
+}
+
+/**
+ * 处理生成张数变化
+ */
+function handlePageCountChange(count: number | null) {
+  pageCount.value = count
+}
+
+/**
+ * 处理分辨率变化
+ */
+function handleResolutionChange(value: {
+  size: string | null
+  image_size: string | null
+  aspect_ratio: string | null
+}) {
+  imageSize.value = value.size
+  imageSizeBase.value = value.image_size
+  imageAspectRatio.value = value.aspect_ratio
 }
 
 /**
@@ -91,7 +119,8 @@ async function handleGenerate() {
 
     const result = await generateOutline(
       topic.value.trim(),
-      imageFiles.length > 0 ? imageFiles : undefined
+      imageFiles.length > 0 ? imageFiles : undefined,
+      pageCount.value ?? undefined
     )
 
     if (result.success && result.pages) {
@@ -130,6 +159,11 @@ async function handleGenerate() {
       } else {
         store.userImages = []
       }
+
+      // 保存用户选择的分辨率设置到 store（供 GenerateView 调用图片接口时使用）
+      store.imageSize = imageSize.value
+      store.imageSizeBase = imageSizeBase.value
+      store.imageAspectRatio = imageAspectRatio.value
 
       // 清理 ComposerInput 的预览
       composerRef.value?.clearPreviews()

@@ -70,6 +70,11 @@ export interface GeneratorState {
   // 用户上传的参考图片（File对象，不会被持久化）
   userImages: File[]
 
+  // 用户指定的图像分辨率参数（持久化）
+  imageSize: string | null
+  imageSizeBase: string | null
+  imageAspectRatio: string | null
+
   // 生成的内容数据（标题、文案、标签）
   content: GeneratedContent
 
@@ -109,7 +114,10 @@ function saveState(state: GeneratorState) {
       recordId: state.recordId,              // 历史记录ID
       content: state.content,                // 生成的内容（标题、文案、标签）
       outlineStatus: state.outlineStatus,    // 大纲生成状态
-      lastSavedAt: state.lastSavedAt         // 最后保存时间
+      lastSavedAt: state.lastSavedAt,        // 最后保存时间
+      imageSize: state.imageSize,            // 用户指定的基准分辨率/尺寸
+      imageSizeBase: state.imageSizeBase,    // 用户指定的档位 1K/2K/4K
+      imageAspectRatio: state.imageAspectRatio  // 用户指定的宽高比
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
   } catch (e) {
@@ -151,6 +159,11 @@ export const useGeneratorStore = defineStore('generator', {
 
       // 用户上传的参考图片（不从 localStorage 恢复）
       userImages: [],
+
+      // 用户指定的图像分辨率与比例（从 localStorage 恢复）
+      imageSize: (saved as any).imageSize ?? null,
+      imageSizeBase: (saved as any).imageSizeBase ?? null,
+      imageAspectRatio: (saved as any).imageAspectRatio ?? null,
 
       // 生成的内容数据
       content: saved.content || {

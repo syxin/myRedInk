@@ -59,6 +59,191 @@
           </svg>
           <span v-if="uploadedImages.length > 0" class="badge-count">{{ uploadedImages.length }}</span>
         </label>
+
+        <!-- 生成张数设置 -->
+        <div class="page-count-control" ref="pageCountRef">
+          <button
+            type="button"
+            class="tool-btn page-count-btn"
+            :class="{ 'active': pageCountActive }"
+            :title="`设置生成张数：${pageCountActive ? pageCount + ' 张' : '默认'}`"
+            :disabled="loading"
+            @click="togglePageCountMenu"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="13" height="16" rx="2"></rect>
+              <path d="M8 4v16"></path>
+              <path d="M19 8v12a2 2 0 0 1-2 2H8"></path>
+            </svg>
+            <span class="page-count-label">
+              <template v-if="pageCountActive">{{ pageCount }} 张</template>
+              <template v-else>张数</template>
+            </span>
+          </button>
+
+          <div v-if="showPageCountMenu" class="page-count-menu" role="dialog" aria-label="设置生成张数">
+            <div class="menu-header">
+              <span>生成张数</span>
+              <span class="menu-value">{{ pageCountActive ? pageCount + ' 张' : '默认' }}</span>
+            </div>
+            <div class="quick-options">
+              <button
+                v-for="opt in quickOptions"
+                :key="opt"
+                type="button"
+                class="quick-option"
+                :class="{ active: pageCountActive && pageCount === opt }"
+                @click="applyPageCount(opt)"
+              >
+                {{ opt }}
+              </button>
+            </div>
+            <div class="slider-row">
+              <input
+                type="range"
+                min="1"
+                max="18"
+                step="1"
+                :value="pageCountActive ? pageCount : 8"
+                @input="onSliderInput"
+                class="page-slider"
+                aria-label="拖动调整生成张数"
+              />
+              <input
+                type="number"
+                min="1"
+                max="30"
+                :value="pageCountActive ? pageCount : ''"
+                placeholder="自定义"
+                @input="onNumberInput"
+                class="page-number"
+                aria-label="直接输入生成张数"
+              />
+            </div>
+            <div class="menu-footer">
+              <button type="button" class="menu-btn ghost" @click="clearPageCount">使用默认</button>
+              <button type="button" class="menu-btn primary" @click="closePageCountMenu">完成</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分辨率设置 -->
+        <div class="resolution-control" ref="resolutionRef">
+          <button
+            type="button"
+            class="tool-btn resolution-btn"
+            :class="{ 'active': resolutionActive }"
+            :title="`设置图像尺寸：${resolutionLabel}`"
+            :disabled="loading"
+            @click="toggleResolutionMenu"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+              <path d="M3 9h18"></path>
+              <path d="M9 3v18"></path>
+            </svg>
+            <span class="resolution-label">{{ resolutionLabel }}</span>
+          </button>
+
+          <div v-if="showResolutionMenu" class="resolution-menu" role="dialog" aria-label="设置图像尺寸">
+            <div class="resolution-header">
+              <span class="resolution-title">设置图像尺寸</span>
+              <span class="resolution-current">当前：{{ effectiveDimensions || '默认' }}</span>
+            </div>
+
+            <!-- 模式切换 -->
+            <div class="resolution-tabs">
+              <button
+                v-for="tab in resolutionTabs"
+                :key="tab.id"
+                type="button"
+                class="resolution-tab"
+                :class="{ active: resolutionMode === tab.id }"
+                @click="resolutionMode = tab.id"
+              >
+                {{ tab.label }}
+              </button>
+            </div>
+
+            <!-- 按比例模式 -->
+            <template v-if="resolutionMode === 'ratio'">
+              <div class="section-label">基准分辨率</div>
+              <div class="size-grid">
+                <button
+                  v-for="size in baseSizes"
+                  :key="size"
+                  type="button"
+                  class="size-option"
+                  :class="{ active: baseSize === size }"
+                  @click="baseSize = size"
+                >
+                  {{ size }}
+                </button>
+              </div>
+
+              <div class="section-label">图像比例</div>
+              <div class="ratio-grid">
+                <button
+                  v-for="ratio in aspectRatios"
+                  :key="ratio.value"
+                  type="button"
+                  class="ratio-option"
+                  :class="{ active: aspectRatio === ratio.value }"
+                  @click="aspectRatio = ratio.value"
+                >
+                  <span class="ratio-icon" :style="ratioIconStyle(ratio.value)"></span>
+                  <span class="ratio-text">{{ ratio.label }}</span>
+                </button>
+              </div>
+            </template>
+
+            <!-- 自定义宽高模式 -->
+            <template v-else-if="resolutionMode === 'custom'">
+              <div class="section-label">自定义宽高（像素）</div>
+              <div class="custom-size-row">
+                <input
+                  type="number"
+                  min="256"
+                  max="4096"
+                  step="64"
+                  v-model.number="customWidth"
+                  class="custom-input"
+                  placeholder="宽"
+                  aria-label="自定义宽度"
+                />
+                <span class="custom-x">×</span>
+                <input
+                  type="number"
+                  min="256"
+                  max="4096"
+                  step="64"
+                  v-model.number="customHeight"
+                  class="custom-input"
+                  placeholder="高"
+                  aria-label="自定义高度"
+                />
+              </div>
+              <div class="custom-hint">建议范围 512~4096，最终以服务商支持的尺寸为准</div>
+            </template>
+
+            <!-- 自动模式提示 -->
+            <template v-else>
+              <div class="auto-hint">
+                由系统根据小红书的常用比例自动选择，无需手动设置。
+              </div>
+            </template>
+
+            <div class="resolution-preview">
+              <div class="preview-label">将使用</div>
+              <div class="preview-value">{{ effectiveDimensions || '系统默认' }}</div>
+            </div>
+
+            <div class="menu-footer">
+              <button type="button" class="menu-btn ghost" @click="closeResolutionMenu">取消</button>
+              <button type="button" class="menu-btn primary" @click="confirmResolution">确定</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="toolbar-right">
         <button
@@ -75,7 +260,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 
 /**
  * 主题输入组合框组件
@@ -103,6 +288,12 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
   (e: 'generate'): void
   (e: 'imagesChange', images: File[]): void
+  (e: 'pageCountChange', count: number | null): void
+  (e: 'resolutionChange', value: {
+    size: string | null            // 像素串，如 "2400x3200"
+    image_size: string | null      // 档位名 "1K"/"2K"/"4K"，custom 模式为 null
+    aspect_ratio: string | null
+  }): void
 }>()
 
 // 输入框引用
@@ -110,6 +301,250 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
 // 已上传的图片
 const uploadedImages = ref<UploadedImage[]>([])
+
+// ========== 生成张数控制 ==========
+// 张数设置弹窗容器（点击外部关闭）
+const pageCountRef = ref<HTMLElement | null>(null)
+const showPageCountMenu = ref(false)
+// 当前生效的张数（若为 null 则使用默认）
+const pageCount = ref(8)
+const pageCountActive = ref(false)
+// 快捷按钮选项
+const quickOptions = [3, 6, 8, 12, 15, 18]
+
+function togglePageCountMenu() {
+  showPageCountMenu.value = !showPageCountMenu.value
+  if (showPageCountMenu.value) {
+    // 首次展开时若无有效值，回退到默认 8
+    if (!pageCount.value || pageCount.value < 1) {
+      pageCount.value = 8
+    }
+  }
+}
+
+function closePageCountMenu() {
+  showPageCountMenu.value = false
+}
+
+function applyPageCount(count: number) {
+  pageCount.value = count
+  pageCountActive.value = true
+  emit('pageCountChange', count)
+}
+
+function clearPageCount() {
+  pageCountActive.value = false
+  pageCount.value = 8
+  emit('pageCountChange', null)
+}
+
+function onSliderInput(event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  if (value >= 1) {
+    pageCount.value = value
+    pageCountActive.value = true
+    emit('pageCountChange', value)
+  }
+}
+
+function onNumberInput(event: Event) {
+  const raw = (event.target as HTMLInputElement).value
+  const value = parseInt(raw, 10)
+  if (!isNaN(value) && value >= 1) {
+    const clamped = Math.min(value, 30)
+    pageCount.value = clamped
+    pageCountActive.value = true
+    emit('pageCountChange', clamped)
+  }
+}
+
+// 点击外部关闭张数 / 分辨率菜单
+function handleClickOutside(event: MouseEvent) {
+  const target = event.target as Node
+  if (
+    showPageCountMenu.value &&
+    pageCountRef.value &&
+    !pageCountRef.value.contains(target)
+  ) {
+    showPageCountMenu.value = false
+  }
+  if (
+    showResolutionMenu.value &&
+    resolutionRef.value &&
+    !resolutionRef.value.contains(target)
+  ) {
+    showResolutionMenu.value = false
+  }
+}
+
+// 绑定/解绑全局点击监听
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', handleClickOutside)
+  onUnmounted(() => {
+    document.removeEventListener('click', handleClickOutside)
+  })
+}
+
+// ========== 分辨率控制 ==========
+const resolutionRef = ref<HTMLElement | null>(null)
+const showResolutionMenu = ref(false)
+
+// 三个模式：auto（使用默认）/ ratio（按比例）/ custom（自定义宽高）
+type ResolutionMode = 'auto' | 'ratio' | 'custom'
+const resolutionMode = ref<ResolutionMode>('ratio')
+
+// ratio 模式：基准分辨率 + 比例
+const baseSizes = ['1K', '2K', '4K']
+const baseSize = ref('4K')
+
+const aspectRatios = [
+  { value: '1:1', label: '1:1' },
+  { value: '3:2', label: '3:2' },
+  { value: '2:3', label: '2:3' },
+  { value: '16:9', label: '16:9' },
+  { value: '9:16', label: '9:16' },
+  { value: '4:3', label: '4:3' },
+  { value: '3:4', label: '3:4' },
+  { value: '21:9', label: '21:9' },
+]
+const aspectRatio = ref('3:4')
+
+// custom 模式：自定义宽高
+const customWidth = ref(2400)
+const customHeight = ref(3200)
+
+// 用户是否显式设置过（非默认）
+const resolutionActive = ref(false)
+
+const resolutionTabs = [
+  { id: 'auto' as ResolutionMode, label: '自动' },
+  { id: 'ratio' as ResolutionMode, label: '按比例' },
+  { id: 'custom' as ResolutionMode, label: '自定义宽高' },
+]
+
+// 基准分辨率对应的"长边像素"映射，确保和后端发给生图接口的值完全一致
+const baseSizePixelMap: Record<string, number> = {
+  '1K': 1024,
+  '2K': 2048,
+  '4K': 3200,
+}
+
+/**
+ * 根据「基准分辨率 + 比例」推算出 (width, height)。
+ * 规则：长边对齐基准分辨率，短边按比例缩放，保证总像素接近所选档位。
+ */
+function computeRatioDimensions(base: string, ratio: string): { width: number; height: number } | null {
+  const maxPx = baseSizePixelMap[base]
+  if (!maxPx) return null
+  const parts = ratio.split(':').map(Number)
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null
+  const [wRatio, hRatio] = parts
+  if (wRatio >= hRatio) {
+    const scale = maxPx / wRatio
+    return {
+      width: Math.round(maxPx),
+      height: Math.round(hRatio * scale),
+    }
+  }
+  const scale = maxPx / hRatio
+  return {
+    width: Math.round(wRatio * scale),
+    height: Math.round(maxPx),
+  }
+}
+
+// 当前面板里的实际像素值（ratio 模式按公式推，custom 模式直接读输入框）
+const currentDimensions = computed<{ width: number; height: number } | null>(() => {
+  if (resolutionMode.value === 'auto') return null
+  if (resolutionMode.value === 'custom') {
+    if (customWidth.value && customHeight.value) {
+      return { width: customWidth.value, height: customHeight.value }
+    }
+    return null
+  }
+  return computeRatioDimensions(baseSize.value, aspectRatio.value)
+})
+
+// 预览展示用："2400×3200" 这种字符串
+const effectiveDimensions = computed<string | null>(() => {
+  const dims = currentDimensions.value
+  return dims ? `${dims.width}×${dims.height}` : null
+})
+
+// 按钮上的显示文本
+const resolutionLabel = computed(() => {
+  // 按钮文案应反映已确认状态：未确认时显示「尺寸」，确认后显示具体值
+  if (!resolutionActive.value) return '尺寸'
+  const dims = effectiveDimensions.value
+  return dims ? dims : '尺寸'
+})
+
+// 比例预览图标样式（根据比例给出宽高比）
+function ratioIconStyle(ratio: string) {
+  const [w, h] = ratio.split(':').map(Number)
+  const maxDim = 20
+  let width: number, height: number
+  if (w >= h) {
+    width = maxDim
+    height = Math.round((h / w) * maxDim)
+  } else {
+    height = maxDim
+    width = Math.round((w / h) * maxDim)
+  }
+  return { width: `${width}px`, height: `${height}px` }
+}
+
+function toggleResolutionMenu() {
+  // 点击外部关闭逻辑与张数共用，这里只切换
+  showResolutionMenu.value = !showResolutionMenu.value
+  if (showResolutionMenu.value) {
+    showPageCountMenu.value = false
+    // 打开时若为默认则选中 ratio / 4K / 3:4
+    if (!resolutionActive.value) {
+      resolutionMode.value = 'ratio'
+      baseSize.value = '4K'
+      aspectRatio.value = '3:4'
+    }
+  }
+}
+
+function closeResolutionMenu() {
+  showResolutionMenu.value = false
+}
+
+// 确认分辨率设置
+function confirmResolution() {
+  if (resolutionMode.value === 'auto') {
+    // 自动：恢复默认，不传参数
+    resolutionActive.value = false
+    emit('resolutionChange', { size: null, image_size: null, aspect_ratio: null })
+  } else if (resolutionMode.value === 'ratio') {
+    // 后端生图接口需要具体像素串（如 "2400x3200"），而不是 "4K" 这种档位
+    const dims = computeRatioDimensions(baseSize.value, aspectRatio.value)
+    if (!dims) {
+      // 兜底：拿不到尺寸时，仍走默认，避免传一个非法字段
+      resolutionActive.value = false
+      emit('resolutionChange', { size: null, image_size: null, aspect_ratio: null })
+      return
+    }
+    resolutionActive.value = true
+    emit('resolutionChange', {
+      size: `${dims.width}x${dims.height}`,
+      image_size: baseSize.value,   // 选档位时同时把 "1K"/"2K"/"4K" 抛出去
+      aspect_ratio: aspectRatio.value,
+    })
+  } else {
+    // 自定义：直接把宽高拼成字符串作为 size 传给后端
+    resolutionActive.value = true
+    const sizeStr = `${customWidth.value}x${customHeight.value}`
+    emit('resolutionChange', {
+      size: sizeStr,
+      image_size: null,             // 自定义宽高没有档位概念
+      aspect_ratio: null,
+    })
+  }
+  closeResolutionMenu()
+}
 
 /**
  * 处理输入变化
@@ -366,6 +801,406 @@ defineExpose({
   align-items: center;
   justify-content: center;
   padding: 0 4px;
+}
+
+/* 生成张数控制 */
+.page-count-control {
+  position: relative;
+}
+
+.page-count-btn {
+  width: auto;
+  padding: 0 12px;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-sub, #666);
+}
+
+.page-count-btn .page-count-label {
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.page-count-btn.active {
+  background: rgba(255, 36, 66, 0.1);
+  color: var(--primary, #ff2442);
+}
+
+.page-count-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-count-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: 280px;
+  padding: 14px 16px 12px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  animation: pageCountMenuIn 0.15s ease-out;
+}
+
+@keyframes pageCountMenuIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--text-main, #1a1a1a);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.menu-value {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--primary, #ff2442);
+}
+
+.quick-options {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.quick-option {
+  padding: 6px 0;
+  border: 1px solid #e8e8e8;
+  background: #fafafa;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-main, #1a1a1a);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.quick-option:hover {
+  border-color: var(--primary, #ff2442);
+  color: var(--primary, #ff2442);
+}
+
+.quick-option.active {
+  background: var(--primary, #ff2442);
+  border-color: var(--primary, #ff2442);
+  color: white;
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.page-slider {
+  flex: 1;
+  accent-color: var(--primary, #ff2442);
+  cursor: pointer;
+}
+
+.page-number {
+  width: 64px;
+  padding: 6px 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 13px;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.page-number:focus {
+  border-color: var(--primary, #ff2442);
+}
+
+.menu-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.menu-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+
+.menu-btn.ghost {
+  background: transparent;
+  color: var(--text-sub, #666);
+  border-color: #e0e0e0;
+}
+
+.menu-btn.ghost:hover {
+  color: var(--text-main, #1a1a1a);
+  border-color: #c0c0c0;
+}
+
+.menu-btn.primary {
+  background: var(--primary, #ff2442);
+  color: white;
+}
+
+.menu-btn.primary:hover {
+  opacity: 0.92;
+}
+
+/* ========== 分辨率设置 ========== */
+.resolution-control {
+  position: relative;
+}
+
+.resolution-btn {
+  width: auto;
+  padding: 0 12px;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-sub, #666);
+}
+
+.resolution-btn .resolution-label {
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.resolution-btn.active {
+  background: rgba(255, 36, 66, 0.1);
+  color: var(--primary, #ff2442);
+}
+
+.resolution-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.resolution-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: 360px;
+  padding: 16px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  animation: pageCountMenuIn 0.15s ease-out;
+}
+
+.resolution-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 14px;
+}
+
+.resolution-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main, #1a1a1a);
+}
+
+.resolution-current {
+  font-size: 12px;
+  color: var(--text-sub, #888);
+}
+
+.resolution-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  background: #f5f5f5;
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+
+.resolution-tab {
+  padding: 7px 0;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--text-sub, #666);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.resolution-tab:hover {
+  color: var(--text-main, #1a1a1a);
+}
+
+.resolution-tab.active {
+  background: white;
+  color: var(--text-main, #1a1a1a);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.section-label {
+  font-size: 12px;
+  color: var(--text-sub, #888);
+  margin-bottom: 8px;
+}
+
+.size-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.size-option {
+  padding: 10px 0;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main, #1a1a1a);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.size-option:hover {
+  border-color: var(--primary, #ff2442);
+  color: var(--primary, #ff2442);
+}
+
+.size-option.active {
+  background: rgba(255, 36, 66, 0.08);
+  border-color: var(--primary, #ff2442);
+  color: var(--primary, #ff2442);
+}
+
+.ratio-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.ratio-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 0;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ratio-option:hover {
+  border-color: var(--primary, #ff2442);
+}
+
+.ratio-option.active {
+  background: rgba(255, 36, 66, 0.08);
+  border-color: var(--primary, #ff2442);
+}
+
+.ratio-icon {
+  display: block;
+  border: 1.5px solid #999;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.ratio-option.active .ratio-icon {
+  border-color: var(--primary, #ff2442);
+}
+
+.ratio-text {
+  font-size: 12px;
+  color: var(--text-main, #1a1a1a);
+  line-height: 1;
+}
+
+.ratio-option.active .ratio-text {
+  color: var(--primary, #ff2442);
+  font-weight: 600;
+}
+
+.custom-size-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.custom-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.custom-input:focus {
+  border-color: var(--primary, #ff2442);
+}
+
+.custom-x {
+  color: var(--text-sub, #888);
+  font-size: 14px;
+}
+
+.custom-hint {
+  font-size: 12px;
+  color: var(--text-sub, #999);
+  margin-bottom: 14px;
+}
+
+.auto-hint {
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-sub, #666);
+  line-height: 1.6;
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.resolution-preview {
+  padding: 12px 14px;
+  background: #f8f8f8;
+  border-radius: 8px;
+  margin-bottom: 14px;
+}
+
+.preview-label {
+  font-size: 12px;
+  color: var(--text-sub, #888);
+  margin-bottom: 4px;
+}
+
+.preview-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-main, #1a1a1a);
 }
 
 /* 生成按钮 */

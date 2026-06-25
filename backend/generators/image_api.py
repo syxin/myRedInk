@@ -1,10 +1,13 @@
 """Image API 图片生成器"""
 import logging
 import base64
+import json
+import re
 import requests
 from typing import Dict, Any, Optional, List, Union
 from .base import ImageGeneratorBase
 from ..utils.image_compressor import compress_image
+from ..utils.size_helper import compute_pixel_size
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +65,9 @@ class ImageApiGenerator(ImageGeneratorBase):
         model: str = None,
         reference_image: Optional[bytes] = None,
         reference_images: Optional[List[bytes]] = None,
+        size: Optional[str] = None,
+        aspect_ratio_override: Optional[str] = None,
+        image_size: Optional[str] = None,
         **kwargs
     ) -> bytes:
         """
@@ -74,11 +80,18 @@ class ImageApiGenerator(ImageGeneratorBase):
             model: 模型名称
             reference_image: 单张参考图片数据（向后兼容）
             reference_images: 多张参考图片数据列表
+            size: 具体像素串（如 "2400x3200"），写入请求体 size 字段
+            image_size: 档位名（如 "1K"/"2K"/"4K"），写入请求体 image_size 字段
+            aspect_ratio_override: 显式指定的宽高比（来自前端），优先级高于 aspect_ratio
 
         Returns:
             生成的图片二进制数据
         """
         self.validate_config()
+
+        # 前端显式选择的宽高比优先
+        if aspect_ratio_override:
+            aspect_ratio = aspect_ratio_override
 
         if aspect_ratio is None:
             aspect_ratio = self.default_aspect_ratio
@@ -86,13 +99,31 @@ class ImageApiGenerator(ImageGeneratorBase):
         if model is None:
             model = self.model
 
-        logger.info(f"Image API 生成图片: model={model}, aspect_ratio={aspect_ratio}, endpoint={self.endpoint_type}")
+        # 像素串：前端传过来已经是具体宽高串
+        raw_size = size if size else self.image_size
+        effective_size = compute_pixel_size(raw_size, aspect_ratio)
+
+        # 档位名：默认用配置 image_size 里的档位（如 "4K"），前端未传时也用配置值
+        effective_image_size = image_size if image_size else self.image_size
+
+        logger.info(
+            f"Image API 生成图片: model={model}, aspect_ratio={aspect_ratio}, "
+            f"size={effective_size}, endpoint={self.endpoint_type}"
+        )
 
         # 根据端点类型选择不同的生成方式
         if 'chat' in self.endpoint_type or 'completions' in self.endpoint_type:
-            return self._generate_via_chat_api(prompt, aspect_ratio, model, reference_image, reference_images)
+            return self._generate_via_chat_api(
+                prompt, aspect_ratio, model, reference_image, reference_images,
+                size=effective_size,
+                image_size=effective_image_size
+            )
         else:
-            return self._generate_via_images_api(prompt, aspect_ratio, model, reference_image, reference_images)
+            return self._generate_via_images_api(
+                prompt, aspect_ratio, model, reference_image, reference_images,
+                size=effective_size,
+                image_size=effective_image_size
+            )
 
     def _generate_via_images_api(
         self,
@@ -100,7 +131,9 @@ class ImageApiGenerator(ImageGeneratorBase):
         aspect_ratio: str,
         model: str,
         reference_image: Optional[bytes] = None,
-        reference_images: Optional[List[bytes]] = None
+        reference_images: Optional[List[bytes]] = None,
+        size: Optional[str] = None,
+        image_size: Optional[str] = None
     ) -> bytes:
         """通过 /v1/images/generations 端点生成图片"""
         headers = {
@@ -113,8 +146,10 @@ class ImageApiGenerator(ImageGeneratorBase):
             "prompt": prompt,
             "response_format": "b64_json",
             "aspect_ratio": aspect_ratio,
-            "image_size": self.image_size
         }
+        # size：写具体像素串；image_size：写档位（1K/2K/4K），两个字段同时发
+        payload["size"] = size if size else self.image_size
+        payload["image_size"] = image_size if image_size else self.image_size
 
         # 收集所有参考图片
         all_reference_images = []
@@ -149,9 +184,17 @@ class ImageApiGenerator(ImageGeneratorBase):
             payload["prompt"] = enhanced_prompt
 
         api_url = f"{self.base_url}{self.endpoint_type}"
-        logger.debug(f"  发送请求到: {api_url}")
-        response = requests.post(api_url, headers=headers, json=payload, timeout=300)
+        logger.debug(f"  Image API POST {api_url}, 字段={list(payload.keys())}")
 
+        # 显式以 UTF-8 + ensure_ascii=False 序列化，避免 requests 默认把中文转 \uXXXX
+        # 这样既减小 body 体积，也能绕开个别中转站对超长 \u 转义解析的兼容性问题
+        body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        send_headers = {**headers, "Content-Type": "application/json; charset=utf-8"}
+        prepared = requests.Request(
+            "POST", api_url, headers=send_headers, data=body_bytes
+        ).prepare()
+
+        response = requests.Session().send(prepared, timeout=600)
         if response.status_code != 200:
             error_detail = response.text[:500]
             logger.error(f"Image API 请求失败: status={response.status_code}, error={error_detail}")
@@ -167,14 +210,36 @@ class ImageApiGenerator(ImageGeneratorBase):
                 "建议：检查API密钥和base_url配置"
             )
 
-        result = response.json()
-        logger.debug(f"  API 响应: data 长度={len(result.get('data', []))}")
+        # 解析响应：可能是普通 JSON，也可能是 SSE 流式响应
+        # （grsai 之类的服务商会以流式方式逐步推送 progress，最终 chunk 才带 results）
+        result = self._parse_response_payload(response)
+        logger.debug(
+            f"  最终响应键: {list(result.keys()) if isinstance(result, dict) else type(result).__name__}"
+        )
 
-        if "data" in result and len(result["data"]) > 0:
-            item = result["data"][0]
+        # 尝试从多种格式中提取图片：
+        # 格式1: {"data": [{"url": "..."}]} 或 {"data": [{"b64_json": "..."}]}
+        # 格式2: {"results": [{"url": "..."}]} （grsai/aitohumanize 等服务商）
+        # 格式3: 顶层就是 {"url": "..."}（极少见）
+        image_item = None
+        if isinstance(result, dict):
+            if "data" in result and isinstance(result["data"], list) and len(result["data"]) > 0:
+                image_item = result["data"][0]
+            elif "results" in result and isinstance(result["results"], list) and len(result["results"]) > 0:
+                image_item = result["results"][0]
+            elif "url" in result or "b64_json" in result:
+                image_item = result
 
-            if "b64_json" in item:
-                b64_data_uri = item["b64_json"]
+        if image_item:
+            # 优先尝试 URL 字段
+            if "url" in image_item and image_item["url"]:
+                image_url = image_item["url"]
+                logger.info(f"检测到图片 URL，准备下载: {image_url[:120]}...")
+                return self._download_image(image_url)
+
+            # 尝试 b64_json/base64 字段
+            if "b64_json" in image_item:
+                b64_data_uri = image_item["b64_json"]
                 if b64_data_uri.startswith('data:'):
                     b64_string = b64_data_uri.split(',', 1)[1]
                 else:
@@ -185,12 +250,12 @@ class ImageApiGenerator(ImageGeneratorBase):
 
         logger.error(f"无法从响应中提取图片数据: {str(result)[:200]}")
         raise Exception(
-            f"图片数据提取失败：未找到 b64_json 数据。\n"
+            f"图片数据提取失败：未找到 url 或 b64_json 数据。\n"
             f"API响应片段: {str(result)[:500]}\n"
             "可能原因：\n"
             "1. API返回格式与预期不符\n"
             "2. response_format 参数未生效\n"
-            "3. 该模型不支持 b64_json 格式\n"
+            "3. 该模型不支持 b64_json 或 url 格式\n"
             "建议：检查API文档确认返回格式要求"
         )
 
@@ -200,7 +265,9 @@ class ImageApiGenerator(ImageGeneratorBase):
         aspect_ratio: str,
         model: str,
         reference_image: Optional[bytes] = None,
-        reference_images: Optional[List[bytes]] = None
+        reference_images: Optional[List[bytes]] = None,
+        size: Optional[str] = None,
+        image_size: Optional[str] = None,
     ) -> bytes:
         """通过 /v1/chat/completions 端点生成图片（如即梦 API）"""
         import re
@@ -240,13 +307,23 @@ class ImageApiGenerator(ImageGeneratorBase):
             "model": model,
             "messages": [{"role": "user", "content": user_content}],
             "max_tokens": 4096,
-            "temperature": 1.0
+            "temperature": 1.0,
         }
 
-        api_url = f"{self.base_url}{self.endpoint_type}"
-        logger.info(f"Chat API 生成图片: {api_url}, model={model}")
+        # 中转站在 chat/completions 路径上常常额外支持 size / aspect_ratio 字段
+        # 显式传过去，避免有些站点拿不到值就用默认尺寸出图
+        if size:
+            payload["size"] = size
+        if image_size:
+            payload["image_size"] = image_size
+        if aspect_ratio:
+            payload["aspect_ratio"] = aspect_ratio
 
-        response = requests.post(api_url, headers=headers, json=payload, timeout=300)
+
+        api_url = f"{self.base_url}{self.endpoint_type}"
+        logger.debug(f"  Image API chat POST {api_url}, 字段={list(payload.keys())}")
+
+        response = requests.post(api_url, headers=headers, json=payload, timeout=600)
 
         if response.status_code != 200:
             error_detail = response.text[:500]
@@ -338,3 +415,77 @@ class ImageApiGenerator(ImageGeneratorBase):
             raise Exception("❌ 下载图片超时，请重试")
         except Exception as e:
             raise Exception(f"❌ 下载图片失败: {str(e)}")
+
+    def _parse_response_payload(self, response: requests.Response) -> dict:
+        """
+        解析 API 响应，兼容普通 JSON 与 SSE 流式响应。
+
+        部分服务商（如 grsai）会以 text/event-stream 方式流式返回，
+        逐行推送中间 progress 状态，最后一行才带 results。
+        """
+        content_type = response.headers.get("content-type", "").lower()
+
+        # ===== SSE 流式响应 =====
+        if "text/event-stream" in content_type or "stream" in content_type:
+            logger.info("检测到流式响应，按行解析以获取最终结果...")
+            last_valid_json: Optional[dict] = None
+            try:
+                for raw_line in response.iter_lines(decode_unicode=True, chunk_size=8192):
+                    if not raw_line:
+                        continue
+                    line = raw_line.strip()
+                    if line.startswith("event:"):
+                        continue
+                    if line.startswith("data:"):
+                        line = line[5:].strip()
+                    if not line or line.startswith(":"):
+                        continue
+                    if line in ("[DONE]", "[END]"):
+                        break
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        logger.debug(f"  跳过非 JSON 行: {line[:80]}")
+                        continue
+                    if not isinstance(chunk, dict):
+                        continue
+                    last_valid_json = chunk
+                    # 一旦出现带图片结果的 chunk 立即返回
+                    has_data = isinstance(chunk.get("data"), list) and len(chunk["data"]) > 0
+                    has_results = isinstance(chunk.get("results"), list) and len(chunk["results"]) > 0
+                    if has_data or has_results:
+                        logger.debug(f"  捕获到最终结果 chunk，键={list(chunk.keys())}")
+                        return chunk
+                if last_valid_json is not None:
+                    logger.debug(f"  使用最后一条 JSON 作为结果，键={list(last_valid_json.keys())}")
+                    return last_valid_json
+                raise ValueError("流式响应中未发现可解析的 JSON")
+            except Exception as e:
+                logger.warning(f"SSE 解析失败，尝试整体回退: {e}")
+
+        # ===== 普通 JSON 响应 =====
+        text = response.text
+        try:
+            return response.json()
+        except json.JSONDecodeError:
+            cleaned = text.lstrip("\ufeff").strip()
+            # 某些服务商即便 content-type 是 application/json 也会推多段
+            # 这种情况下取最后一段非空 JSON
+            if "\n" in cleaned:
+                segments = [seg.strip() for seg in cleaned.split("\n") if seg.strip()]
+                for seg in reversed(segments):
+                    if seg.startswith("data:"):
+                        seg = seg[5:].strip()
+                    try:
+                        return json.loads(seg)
+                    except json.JSONDecodeError:
+                        continue
+            # 最后兜底：用正则抓出第一个 JSON 对象
+            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except Exception:
+                    pass
+            logger.error(f"响应无法解析为 JSON，前 500 字符: {text[:500]}")
+            raise ValueError("API 返回格式不是有效的 JSON")

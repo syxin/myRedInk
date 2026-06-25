@@ -132,11 +132,23 @@ class OutlineService:
     def generate_outline(
         self,
         topic: str,
-        images: Optional[List[bytes]] = None
+        images: Optional[List[bytes]] = None,
+        page_count: Optional[int] = None
     ) -> Dict[str, Any]:
         try:
-            logger.info(f"开始生成大纲: topic={topic[:50]}..., images={len(images) if images else 0}")
+            logger.info(
+                f"开始生成大纲: topic={topic[:50]}..., "
+                f"images={len(images) if images else 0}, page_count={page_count}"
+            )
             prompt = self.prompt_template.format(topic=topic)
+
+            if page_count is not None and page_count > 0:
+                # 用户在创作中心指定了具体张数，强约束模型按数生成
+                prompt += (
+                    f"\n\n用户额外要求（最高优先级）：本次必须严格生成 {page_count} 页（含封面），"
+                    f"不得多于或少于该数量。请按此数量调整内容粒度与结构。"
+                )
+                logger.debug(f"附加用户指定页数约束: {page_count}")
 
             if images and len(images) > 0:
                 prompt += f"\n\n注意：用户提供了 {len(images)} 张参考图片，请在生成大纲时考虑这些图片的内容和风格。这些图片可能是产品图、个人照片或场景图，请根据图片内容来优化大纲，使生成的内容与图片相关联。"

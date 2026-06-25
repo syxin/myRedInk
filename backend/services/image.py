@@ -9,6 +9,7 @@ from typing import Dict, Any, Generator, List, Optional, Tuple
 from backend.config import Config
 from backend.generators.factory import ImageGeneratorFactory
 from backend.utils.image_compressor import compress_image
+from backend.utils.size_helper import compute_pixel_size
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,10 @@ class ImageService:
         retry_count: int = 0,
         full_outline: str = "",
         user_images: Optional[List[bytes]] = None,
-        user_topic: str = ""
+        user_topic: str = "",
+        image_size: Optional[str] = None,
+        aspect_ratio: Optional[str] = None,
+        image_size_base: Optional[str] = None
     ) -> Tuple[int, bool, Optional[str], Optional[str]]:
         """
         生成单张图片（带自动重试）
@@ -134,6 +138,9 @@ class ImageService:
             full_outline: 完整的大纲文本
             user_images: 用户上传的参考图片列表
             user_topic: 用户原始输入
+            image_size: 用户选择的具体像素串，如 "2400x3200"
+            aspect_ratio: 用户选择的宽高比，如 "3:4"
+            image_size_base: 用户选择的档位 "1K"/"2K"/"4K"（自定义宽高时为 None）
 
         Returns:
             (index, success, filename, error_message)
@@ -165,9 +172,12 @@ class ImageService:
             # 调用生成器生成图片
             if self.provider_config.get('type') == 'google_genai':
                 logger.debug(f"  使用 Google GenAI 生成器")
+                # Google GenAI 只接受 aspect_ratio，不接受具体像素 size；
+                # 但仍按统一逻辑解析比例（容忍前端 image_size 是 "1K"/"2K"/"4K" 时复用默认比例）
+                effective_aspect_ratio = aspect_ratio or self.provider_config.get('default_aspect_ratio', '3:4')
                 image_data = self.generator.generate_image(
                     prompt=prompt,
-                    aspect_ratio=self.provider_config.get('default_aspect_ratio', '3:4'),
+                    aspect_ratio=effective_aspect_ratio,
                     temperature=self.provider_config.get('temperature', 1.0),
                     model=self.provider_config.get('model', 'gemini-3-pro-image-preview'),
                     reference_image=reference_image,
@@ -182,20 +192,35 @@ class ImageService:
                 if reference_image:
                     reference_images.append(reference_image)
 
+                effective_aspect_ratio = aspect_ratio or self.provider_config.get('default_aspect_ratio', '3:4')
+                effective_size = compute_pixel_size(
+                    image_size or self.provider_config.get('image_size'),
+                    effective_aspect_ratio,
+                )
                 image_data = self.generator.generate_image(
                     prompt=prompt,
-                    aspect_ratio=self.provider_config.get('default_aspect_ratio', '3:4'),
+                    aspect_ratio=effective_aspect_ratio,
                     temperature=self.provider_config.get('temperature', 1.0),
                     model=self.provider_config.get('model', 'nano-banana-2'),
                     reference_images=reference_images if reference_images else None,
+                    size=effective_size,
+                    image_size=image_size_base,
                 )
             else:
                 logger.debug(f"  使用 OpenAI 兼容生成器")
+                # 同样归一化：传给 OpenAI 兼容接口的 size 必须是像素串
+                effective_aspect_ratio = aspect_ratio or self.provider_config.get('default_aspect_ratio', '3:4')
+                effective_size = compute_pixel_size(
+                    image_size or self.provider_config.get('default_size'),
+                    effective_aspect_ratio,
+                )
                 image_data = self.generator.generate_image(
                     prompt=prompt,
-                    size=self.provider_config.get('default_size', '1024x1024'),
+                    size=effective_size,
+                    aspect_ratio=effective_aspect_ratio,
                     model=self.provider_config.get('model'),
                     quality=self.provider_config.get('quality', 'standard'),
+                    image_size=image_size_base,
                 )
 
             # 保存图片（使用当前任务目录）
@@ -216,7 +241,10 @@ class ImageService:
         task_id: str = None,
         full_outline: str = "",
         user_images: Optional[List[bytes]] = None,
-        user_topic: str = ""
+        user_topic: str = "",
+        image_size: Optional[str] = None,
+        aspect_ratio: Optional[str] = None,
+        image_size_base: Optional[str] = None
     ) -> Generator[Dict[str, Any], None, None]:
         """
         生成图片（生成器，支持 SSE 流式返回）
@@ -228,6 +256,8 @@ class ImageService:
             full_outline: 完整的大纲文本（用于保持风格一致）
             user_images: 用户上传的参考图片列表（可选）
             user_topic: 用户原始输入（用于保持意图一致）
+            image_size: 用户选择的基准分辨率（如 "1K"/"2K"/"4K"）
+            aspect_ratio: 用户选择的宽高比
 
         Yields:
             进度事件字典
@@ -260,7 +290,10 @@ class ImageService:
             "cover_image": None,
             "full_outline": full_outline,
             "user_images": compressed_user_images,
-            "user_topic": user_topic
+            "user_topic": user_topic,
+            "image_size": image_size,
+            "aspect_ratio": aspect_ratio,
+            "image_size_base": image_size_base,
         }
 
         # ==================== 第一阶段：生成封面 ====================
@@ -295,7 +328,9 @@ class ImageService:
             # 生成封面（使用用户上传的图片作为参考）
             index, success, filename, error = self._generate_single_image(
                 cover_page, task_id, reference_image=None, full_outline=full_outline,
-                user_images=compressed_user_images, user_topic=user_topic
+                user_images=compressed_user_images, user_topic=user_topic,
+                image_size=image_size, aspect_ratio=aspect_ratio,
+                image_size_base=image_size_base
             )
 
             if success:
@@ -365,7 +400,10 @@ class ImageService:
                             0,  # retry_count
                             full_outline,  # 传入完整大纲
                             compressed_user_images,  # 用户上传的参考图片（已压缩）
-                            user_topic  # 用户原始输入
+                            user_topic,  # 用户原始输入
+                            image_size,
+                            aspect_ratio,
+                            image_size_base
                         ): page
                         for page in other_pages
                     }
@@ -466,7 +504,10 @@ class ImageService:
                         0,
                         full_outline,
                         compressed_user_images,
-                        user_topic
+                        user_topic,
+                        image_size,
+                        aspect_ratio,
+                        image_size_base
                     )
 
                     if success:
@@ -517,7 +558,10 @@ class ImageService:
         page: Dict,
         use_reference: bool = True,
         full_outline: str = "",
-        user_topic: str = ""
+        user_topic: str = "",
+        image_size: Optional[str] = None,
+        aspect_ratio: Optional[str] = None,
+        image_size_base: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         重试生成单张图片
@@ -537,6 +581,10 @@ class ImageService:
 
         reference_image = None
         user_images = None
+        # 从任务状态中读取分辨率和宽高比（重试时复用首次生成的设置）
+        task_image_size = None
+        task_aspect_ratio = None
+        task_image_size_base = None
 
         # 首先尝试从任务状态中获取上下文
         if task_id in self._task_states:
@@ -549,6 +597,14 @@ class ImageService:
             if not user_topic:
                 user_topic = task_state.get("user_topic", "")
             user_images = task_state.get("user_images")
+            task_image_size = task_state.get("image_size")
+            task_aspect_ratio = task_state.get("aspect_ratio")
+            task_image_size_base = task_state.get("image_size_base")
+
+        # 调用方传入的优先，其次任务状态中的
+        effective_size = image_size if image_size else task_image_size
+        effective_aspect = aspect_ratio if aspect_ratio else task_aspect_ratio
+        effective_size_base = image_size_base if image_size_base else task_image_size_base
 
         # 如果任务状态中没有封面图，尝试从文件系统加载
         if use_reference and reference_image is None:
@@ -566,7 +622,10 @@ class ImageService:
             0,
             full_outline,
             user_images,
-            user_topic
+            user_topic,
+            effective_size,
+            effective_aspect,
+            effective_size_base
         )
 
         if success:
@@ -623,8 +682,14 @@ class ImageService:
         # 并发重试
         # 从任务状态中获取完整大纲
         full_outline = ""
+        image_size = None
+        aspect_ratio = None
+        image_size_base = None
         if task_id in self._task_states:
             full_outline = self._task_states[task_id].get("full_outline", "")
+            image_size = self._task_states[task_id].get("image_size")
+            aspect_ratio = self._task_states[task_id].get("aspect_ratio")
+            image_size_base = self._task_states[task_id].get("image_size_base")
 
         with ThreadPoolExecutor(max_workers=self.MAX_CONCURRENT) as executor:
             future_to_page = {
@@ -634,7 +699,12 @@ class ImageService:
                     task_id,
                     reference_image,
                     0,  # retry_count
-                    full_outline  # 传入完整大纲
+                    full_outline,  # 传入完整大纲
+                    None,  # user_images
+                    "",    # user_topic
+                    image_size,
+                    aspect_ratio,
+                    image_size_base
                 ): page
                 for page in pages
             }
@@ -699,7 +769,10 @@ class ImageService:
         page: Dict,
         use_reference: bool = True,
         full_outline: str = "",
-        user_topic: str = ""
+        user_topic: str = "",
+        image_size: Optional[str] = None,
+        aspect_ratio: Optional[str] = None,
+        image_size_base: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         重新生成图片（用户手动触发，即使成功的也可以重新生成）
@@ -717,7 +790,10 @@ class ImageService:
         return self.retry_single_image(
             task_id, page, use_reference,
             full_outline=full_outline,
-            user_topic=user_topic
+            user_topic=user_topic,
+            image_size=image_size,
+            aspect_ratio=aspect_ratio,
+            image_size_base=image_size_base
         )
 
     def get_image_path(self, task_id: str, filename: str) -> str:

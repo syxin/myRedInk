@@ -50,6 +50,9 @@ def create_image_blueprint():
             task_id = data.get('task_id')
             full_outline = data.get('full_outline', '')
             user_topic = data.get('user_topic', '')
+            image_size = data.get('image_size')   # 用户选择的分辨率，如 "1K"/"2K"/"4K"
+            aspect_ratio = data.get('aspect_ratio')  # 用户选择的宽高比，如 "3:4"
+            image_size_base = data.get('image_size_base')  # 档位名 "1K"/"2K"/"4K"
 
             # 解析 base64 格式的用户参考图片
             user_images = _parse_base64_images(data.get('user_images', []))
@@ -58,7 +61,10 @@ def create_image_blueprint():
                 'pages_count': len(pages) if pages else 0,
                 'task_id': task_id,
                 'user_topic': user_topic[:50] if user_topic else None,
-                'user_images': user_images
+                'user_images': user_images,
+                'image_size': image_size,
+                'aspect_ratio': aspect_ratio,
+                'image_size_base': image_size_base
             })
 
             if not pages:
@@ -76,7 +82,10 @@ def create_image_blueprint():
                 for event in image_service.generate_images(
                     pages, task_id, full_outline,
                     user_images=user_images if user_images else None,
-                    user_topic=user_topic
+                    user_topic=user_topic,
+                    image_size=image_size,
+                    aspect_ratio=aspect_ratio,
+                    image_size_base=image_size_base
                 ):
                     event_type = event["event"]
                     event_data = event["data"]
@@ -293,6 +302,9 @@ def create_image_blueprint():
             use_reference = data.get('use_reference', True)
             full_outline = data.get('full_outline', '')
             user_topic = data.get('user_topic', '')
+            image_size = data.get('image_size')
+            aspect_ratio = data.get('aspect_ratio')
+            image_size_base = data.get('image_size_base')
 
             log_request('/regenerate', {
                 'task_id': task_id,
@@ -311,7 +323,10 @@ def create_image_blueprint():
             result = image_service.regenerate_image(
                 task_id, page, use_reference,
                 full_outline=full_outline,
-                user_topic=user_topic
+                user_topic=user_topic,
+                image_size=image_size,
+                aspect_ratio=aspect_ratio,
+                image_size_base=image_size_base
             )
 
             if result["success"]:

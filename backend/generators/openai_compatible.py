@@ -1,9 +1,10 @@
 """OpenAI 兼容接口图片生成器"""
 import logging
 import base64
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import requests
 from .base import ImageGeneratorBase
+from ..utils.size_helper import compute_pixel_size
 
 logger = logging.getLogger(__name__)
 
@@ -76,21 +77,30 @@ class OpenAICompatibleGenerator(ImageGeneratorBase):
         if model is None:
             model = self.default_model
 
-        logger.info(f"OpenAI 兼容 API 生成图片: model={model}, size={size}, endpoint={self.endpoint_type}")
+        # size 已由上层归一化为像素串；image_size 是档位名 "1K"/"2K"/"4K"
+        aspect_ratio = kwargs.get("aspect_ratio") or kwargs.get("aspect_ratio_override")
+        size = compute_pixel_size(size, aspect_ratio)
+        image_size = kwargs.get("image_size")
+        logger.info(
+            f"OpenAI 兼容 API 生成图片: model={model}, size={size}, image_size={image_size}, "
+            f"endpoint={self.endpoint_type}"
+        )
 
         # 根据端点路径决定使用哪种 API 方式
         if 'chat' in self.endpoint_type or 'completions' in self.endpoint_type:
-            return self._generate_via_chat_api(prompt, size, model)
+            return self._generate_via_chat_api(prompt, size, model, aspect_ratio, image_size)
         else:
             # 默认使用 images API
-            return self._generate_via_images_api(prompt, size, model, quality)
+            return self._generate_via_images_api(prompt, size, model, quality, aspect_ratio, image_size)
 
     def _generate_via_images_api(
         self,
         prompt: str,
         size: str,
         model: str,
-        quality: str
+        quality: str,
+        aspect_ratio: Optional[str] = None,
+        image_size: Optional[str] = None
     ) -> bytes:
         """通过 images API 端点生成"""
         # 确保端点以 / 开头
@@ -115,7 +125,15 @@ class OpenAICompatibleGenerator(ImageGeneratorBase):
         if quality and model.startswith('dall-e'):
             payload["quality"] = quality
 
-        response = requests.post(url, headers=headers, json=payload, timeout=300)
+        # 部分中转站会在 images API 上额外支持 aspect_ratio / image_size 字段
+        if aspect_ratio:
+            payload["aspect_ratio"] = aspect_ratio
+        if image_size:
+            payload["image_size"] = image_size
+
+        logger.debug(f"  images 模式请求体字段: {list(payload.keys())}")
+
+        response = requests.post(url, headers=headers, json=payload, timeout=600)
 
         if response.status_code != 200:
             error_detail = response.text[:500]
@@ -183,7 +201,9 @@ class OpenAICompatibleGenerator(ImageGeneratorBase):
         self,
         prompt: str,
         size: str,
-        model: str
+        model: str,
+        aspect_ratio: Optional[str] = None,
+        image_size: Optional[str] = None
     ) -> bytes:
         """
         通过 chat/completions 端点生成图片
@@ -212,10 +232,20 @@ class OpenAICompatibleGenerator(ImageGeneratorBase):
                 }
             ],
             "max_tokens": 4096,
-            "temperature": 1.0
+            "temperature": 1.0,
+            "size": size,
         }
 
-        response = requests.post(url, headers=headers, json=payload, timeout=300)
+        # 许多 OpenAI 兼容的图片生成中转站（如即梦、DALL-E 代理、国内中转）
+        # 会在 chat/completions 上扩展 aspect_ratio / image_size 字段
+        if aspect_ratio:
+            payload["aspect_ratio"] = aspect_ratio
+        if image_size:
+            payload["image_size"] = image_size
+
+        logger.debug(f"  chat 模式请求体字段: {list(payload.keys())}")
+
+        response = requests.post(url, headers=headers, json=payload, timeout=600)
 
         if response.status_code != 200:
             error_detail = response.text[:500]
