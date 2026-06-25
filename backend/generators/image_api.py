@@ -194,7 +194,7 @@ class ImageApiGenerator(ImageGeneratorBase):
             "POST", api_url, headers=send_headers, data=body_bytes
         ).prepare()
 
-        response = requests.Session().send(prepared, timeout=600)
+        response = requests.Session().send(prepared, timeout=900)
         if response.status_code != 200:
             error_detail = response.text[:500]
             logger.error(f"Image API 请求失败: status={response.status_code}, error={error_detail}")
@@ -323,7 +323,7 @@ class ImageApiGenerator(ImageGeneratorBase):
         api_url = f"{self.base_url}{self.endpoint_type}"
         logger.debug(f"  Image API chat POST {api_url}, 字段={list(payload.keys())}")
 
-        response = requests.post(api_url, headers=headers, json=payload, timeout=600)
+        response = requests.post(api_url, headers=headers, json=payload, timeout=900)
 
         if response.status_code != 200:
             error_detail = response.text[:500]

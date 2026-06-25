@@ -133,7 +133,7 @@ class OpenAICompatibleGenerator(ImageGeneratorBase):
 
         logger.debug(f"  images 模式请求体字段: {list(payload.keys())}")
 
-        response = requests.post(url, headers=headers, json=payload, timeout=600)
+        response = requests.post(url, headers=headers, json=payload, timeout=900)
 
         if response.status_code != 200:
             error_detail = response.text[:500]
@@ -245,7 +245,7 @@ class OpenAICompatibleGenerator(ImageGeneratorBase):
 
         logger.debug(f"  chat 模式请求体字段: {list(payload.keys())}")
 
-        response = requests.post(url, headers=headers, json=payload, timeout=600)
+        response = requests.post(url, headers=headers, json=payload, timeout=900)
 
         if response.status_code != 200:
             error_detail = response.text[:500]
