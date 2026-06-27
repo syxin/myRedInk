@@ -429,9 +429,18 @@ const baseSizePixelMap: Record<string, number> = {
   '4K': 3200,
 }
 
+// gpt-image-2 等模型要求宽高都是 16 的倍数，预览和提交都按此对齐
+const PIXEL_ALIGNMENT = 16
+
+function alignToStep(value: number, step: number = PIXEL_ALIGNMENT): number {
+  const aligned = Math.round(value / step) * step
+  return aligned < step ? step : aligned
+}
+
 /**
  * 根据「基准分辨率 + 比例」推算出 (width, height)。
- * 规则：长边对齐基准分辨率，短边按比例缩放，保证总像素接近所选档位。
+ * 规则：长边对齐基准分辨率，短边按比例缩放后再四舍五入到 16 的倍数，
+ * 保证 gpt-image 等模型不会因为对齐问题报 invalid_size。
  */
 function computeRatioDimensions(base: string, ratio: string): { width: number; height: number } | null {
   const maxPx = baseSizePixelMap[base]
@@ -439,17 +448,21 @@ function computeRatioDimensions(base: string, ratio: string): { width: number; h
   const parts = ratio.split(':').map(Number)
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null
   const [wRatio, hRatio] = parts
+  let width: number
+  let height: number
   if (wRatio >= hRatio) {
     const scale = maxPx / wRatio
-    return {
-      width: Math.round(maxPx),
-      height: Math.round(hRatio * scale),
-    }
+    width = maxPx
+    height = Math.round(hRatio * scale)
+  } else {
+    const scale = maxPx / hRatio
+    width = Math.round(wRatio * scale)
+    height = maxPx
   }
-  const scale = maxPx / hRatio
+  // 两边一起对齐到 16 的倍数
   return {
-    width: Math.round(wRatio * scale),
-    height: Math.round(maxPx),
+    width: alignToStep(width),
+    height: alignToStep(height),
   }
 }
 
@@ -458,7 +471,11 @@ const currentDimensions = computed<{ width: number; height: number } | null>(() 
   if (resolutionMode.value === 'auto') return null
   if (resolutionMode.value === 'custom') {
     if (customWidth.value && customHeight.value) {
-      return { width: customWidth.value, height: customHeight.value }
+      // 自定义宽高同样对齐到 16 的倍数，避免后端被生图接口拒绝
+      return {
+        width: alignToStep(customWidth.value),
+        height: alignToStep(customHeight.value),
+      }
     }
     return null
   }
@@ -534,9 +551,11 @@ function confirmResolution() {
       aspect_ratio: aspectRatio.value,
     })
   } else {
-    // 自定义：直接把宽高拼成字符串作为 size 传给后端
+    // 自定义：把用户输入的宽高对齐到 16 的倍数后再发出去
     resolutionActive.value = true
-    const sizeStr = `${customWidth.value}x${customHeight.value}`
+    const alignedW = alignToStep(customWidth.value || 0)
+    const alignedH = alignToStep(customHeight.value || 0)
+    const sizeStr = `${alignedW}x${alignedH}`
     emit('resolutionChange', {
       size: sizeStr,
       image_size: null,             // 自定义宽高没有档位概念
