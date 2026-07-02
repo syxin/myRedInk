@@ -348,11 +348,17 @@ export const useGeneratorStore = defineStore('generator', {
     updateImage(index: number, newUrl: string) {
       const image = this.images.find(img => img.index === index)
       if (image) {
+        // 只有当这张图原本不是 done（即处于 error/retrying/generating）时，
+        // 才需要把进度计数补上；否则用户「主动重新生成已成功图片」会重复计数。
+        const wasDone = image.status === 'done'
         // 添加时间戳避免缓存
         const timestamp = Date.now()
         image.url = `${newUrl}?t=${timestamp}`
         image.status = 'done'
         delete image.error
+        if (!wasDone) {
+          this.progress.current = Math.min(this.progress.current + 1, this.progress.total)
+        }
       }
     },
 

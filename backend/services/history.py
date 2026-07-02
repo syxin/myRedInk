@@ -124,7 +124,8 @@ class HistoryService:
                 "generated": []  # 初始无生成图片
             },
             "status": RecordStatus.DRAFT,  # 初始状态：草稿
-            "thumbnail": None  # 初始无缩略图
+            "thumbnail": None,  # 初始无缩略图
+            "content": None     # 生成的标题/文案/标签，初始为空
         }
 
         # 保存完整记录到独立文件
@@ -198,7 +199,8 @@ class HistoryService:
         outline: Optional[Dict] = None,
         images: Optional[Dict] = None,
         status: Optional[str] = None,
-        thumbnail: Optional[str] = None
+        thumbnail: Optional[str] = None,
+        content: Optional[Dict] = None
     ) -> bool:
         """
         更新历史记录
@@ -248,6 +250,10 @@ class HistoryService:
         # 更新缩略图
         if thumbnail is not None:
             record["thumbnail"] = thumbnail
+
+        # 更新生成的标题/文案/标签
+        if content is not None:
+            record["content"] = content
 
         # 保存完整记录
         record_path = self._get_record_path(record_id)

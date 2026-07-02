@@ -110,6 +110,55 @@ const redirectTimer = ref<number | null>(null)
 const regeneratingIndices = ref(new Set<number>())
 let isUnmounted = false
 
+// 允许重试路径调用的收尾：若所有页面都已完成，则更新历史记录并跳转到结果页。
+// 与首次生成的 onFinish 分支保持一致，避免重试成功后进度条卡在中途。
+async function maybeFinishAfterRetry() {
+  if (isUnmounted) return
+  if (!store.taskId) return
+  // 仍有生成中 / 重试中 / 失败的图片，不能收尾
+  const stillWorking = store.images.some(
+    img => img.status !== 'done'
+  )
+  if (stillWorking) return
+  // 已经安排过跳转就不重复
+  if (redirectTimer.value !== null) return
+
+  // 与首次生成一致，把进度置为 done
+  store.finishGeneration(store.taskId)
+
+  // 更新历史记录（失败则忽略，不阻塞跳转）
+  if (store.recordId) {
+    try {
+      const generatedImages = store.images
+        .filter(img => img.status === 'done' && img.url)
+        .map(img => {
+          // img.url 形如 /api/images/{task}/{filename}?t=...
+          const path = img.url.split('?')[0]
+          const segments = path.split('/')
+          return segments[segments.length - 1]
+        })
+
+      const thumbnail = generatedImages.length > 0 ? generatedImages[0] : null
+      await updateHistory(store.recordId, {
+        images: {
+          task_id: store.taskId,
+          generated: generatedImages
+        },
+        status: 'completed',
+        thumbnail: thumbnail || undefined
+      })
+    } catch (e) {
+      console.error('重试收尾时更新历史记录失败:', e)
+    }
+  }
+
+  redirectTimer.value = window.setTimeout(() => {
+    if (!isUnmounted) {
+      router.push('/result')
+    }
+  }, 1000)
+}
+
 const isGenerating = computed(() => store.progress.status === 'generating')
 
 const progressPercent = computed(() => {
@@ -158,6 +207,7 @@ function retrySingleImage(index: number) {
     .then(result => {
       if (result.success && result.image_url) {
         store.updateImage(index, result.image_url)
+        maybeFinishAfterRetry()
       } else {
         store.updateProgress(index, 'error', undefined, result.error)
       }
@@ -199,6 +249,7 @@ async function retryAllFailed() {
       (event) => {
         if (event.image_url) {
           store.updateImage(event.index, event.image_url)
+          maybeFinishAfterRetry()
         }
       },
       // onError
@@ -208,6 +259,8 @@ async function retryAllFailed() {
       // onFinish
       () => {
         isRetrying.value = false
+        // 若单张重试或者一键补全把所有图都补齐了，收尾一次
+        maybeFinishAfterRetry()
       },
       // onStreamError
       (err) => {

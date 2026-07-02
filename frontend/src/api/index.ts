@@ -225,6 +225,11 @@ export interface HistoryDetail {
   }
   status: string
   thumbnail: string | null
+  content?: {
+    titles: string[]
+    copywriting: string
+    tags: string[]
+  } | null
 }
 
 /**
@@ -244,6 +249,11 @@ export interface UpdateHistoryParams {
   images?: { task_id: string | null; generated: string[] }
   status?: string
   thumbnail?: string
+  content?: {
+    titles: string[]
+    copywriting: string
+    tags: string[]
+  } | null
 }
 
 /**

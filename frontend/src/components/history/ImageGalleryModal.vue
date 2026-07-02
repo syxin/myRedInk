@@ -53,8 +53,9 @@
         </div>
       </div>
 
-      <!-- 图片网格 -->
-      <div class="modal-gallery-grid">
+      <!-- 图片 + 文字内容，共用一个滚动容器 -->
+      <div class="modal-scroll">
+        <div class="modal-gallery-grid">
         <div
           v-for="(img, idx) in record.images.generated"
           :key="idx"
@@ -98,12 +99,103 @@
           </div>
         </div>
       </div>
+
+      <!-- 文字内容：标题 / 文案 / 标签 -->
+      <div class="modal-content-section">
+        <template v-if="hasContent">
+          <div class="content-card">
+            <div class="content-card-header">
+              <h4>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M4 6h16M4 12h16M4 18h10" />
+                </svg>
+                标题
+              </h4>
+              <button class="content-copy-btn" @click="copyAllTitles" :class="{ copied: copiedTitles }">
+                {{ copiedTitles ? '已复制' : '复制全部' }}
+              </button>
+            </div>
+            <div class="content-titles">
+              <div
+                v-for="(title, index) in content!.titles"
+                :key="index"
+                class="content-title-item"
+                :class="{ copied: copiedTitleIndex === index }"
+                @click="copyOne(title, index)"
+              >
+                <span class="title-badge">{{ index === 0 ? '推荐' : `备选${index}` }}</span>
+                <span class="title-text">{{ title }}</span>
+                <span class="copy-hint">{{ copiedTitleIndex === index ? '已复制' : '点击复制' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="content-card" v-if="content!.copywriting">
+            <div class="content-card-header">
+              <h4>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                文案
+              </h4>
+              <button class="content-copy-btn" @click="copyCopywriting" :class="{ copied: copiedCopywriting }">
+                {{ copiedCopywriting ? '已复制' : '复制' }}
+              </button>
+            </div>
+            <div class="content-copywriting">
+              <p
+                v-for="(paragraph, index) in copywritingParagraphs"
+                :key="index"
+              >{{ paragraph }}</p>
+            </div>
+          </div>
+
+          <div class="content-card" v-if="content!.tags && content!.tags.length > 0">
+            <div class="content-card-header">
+              <h4>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                  <line x1="7" y1="7" x2="7.01" y2="7" />
+                </svg>
+                标签
+              </h4>
+              <button class="content-copy-btn" @click="copyAllTags" :class="{ copied: copiedTags }">
+                {{ copiedTags ? '已复制' : '复制全部' }}
+              </button>
+            </div>
+            <div class="content-tags">
+              <span
+                v-for="(tag, index) in content!.tags"
+                :key="index"
+                class="tag-chip"
+                :class="{ copied: copiedTagIndex === index }"
+                @click="copyOneTag(tag, index)"
+              >#{{ tag }}</span>
+            </div>
+          </div>
+        </template>
+
+        <div v-else class="content-empty">
+          <div class="content-empty-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+            </svg>
+          </div>
+          <div class="content-empty-title">尚未生成标题、文案和标签</div>
+          <div class="content-empty-hint">回到「生成结果」页面点击「生成标题、文案和标签」即可补齐。</div>
+        </div>
+      </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 
 /**
  * 图片画廊模态框组件
@@ -128,6 +220,11 @@ interface ViewingRecord {
     task_id: string
     generated: string[]
   }
+  content?: {
+    titles: string[]
+    copywriting: string
+    tags: string[]
+  } | null
 }
 
 // 定义 Props
@@ -154,6 +251,109 @@ const formattedDate = computed(() => {
   if (!props.record) return ''
   const d = new Date(props.record.updated_at)
   return `${d.getMonth() + 1}/${d.getDate()}`
+})
+
+// ========== 生成的标题 / 文案 / 标签 ==========
+const content = computed(() => props.record?.content ?? null)
+const hasContent = computed(() => {
+  const c = content.value
+  if (!c) return false
+  const hasTitles = Array.isArray(c.titles) && c.titles.length > 0
+  const hasCopy = typeof c.copywriting === 'string' && c.copywriting.trim().length > 0
+  const hasTags = Array.isArray(c.tags) && c.tags.length > 0
+  return hasTitles || hasCopy || hasTags
+})
+
+const copywritingParagraphs = computed(() => {
+  const raw = content.value?.copywriting ?? ''
+  return raw
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+})
+
+// 复制状态
+const copiedTitles = ref(false)
+const copiedCopywriting = ref(false)
+const copiedTags = ref(false)
+const copiedTitleIndex = ref<number | null>(null)
+const copiedTagIndex = ref<number | null>(null)
+const copyTimers: number[] = []
+
+function scheduleReset(cb: () => void, ms = 1600) {
+  const id = window.setTimeout(() => {
+    cb()
+    const idx = copyTimers.indexOf(id)
+    if (idx !== -1) copyTimers.splice(idx, 1)
+  }, ms)
+  copyTimers.push(id)
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    // 降级方案：临时 textarea + execCommand
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    try {
+      const ok = document.execCommand('copy')
+      return ok
+    } catch {
+      return false
+    } finally {
+      document.body.removeChild(textarea)
+    }
+  }
+}
+
+async function copyAllTitles() {
+  if (!content.value) return
+  if (await copyToClipboard(content.value.titles.join('\n'))) {
+    copiedTitles.value = true
+    scheduleReset(() => { copiedTitles.value = false })
+  }
+}
+
+async function copyOne(title: string, index: number) {
+  if (await copyToClipboard(title)) {
+    copiedTitleIndex.value = index
+    scheduleReset(() => { copiedTitleIndex.value = null })
+  }
+}
+
+async function copyCopywriting() {
+  if (!content.value) return
+  if (await copyToClipboard(content.value.copywriting)) {
+    copiedCopywriting.value = true
+    scheduleReset(() => { copiedCopywriting.value = false })
+  }
+}
+
+async function copyAllTags() {
+  if (!content.value) return
+  const text = content.value.tags.map(t => `#${t}`).join(' ')
+  if (await copyToClipboard(text)) {
+    copiedTags.value = true
+    scheduleReset(() => { copiedTags.value = false })
+  }
+}
+
+async function copyOneTag(tag: string, index: number) {
+  if (await copyToClipboard(`#${tag}`)) {
+    copiedTagIndex.value = index
+    scheduleReset(() => { copiedTagIndex.value = null })
+  }
+}
+
+onUnmounted(() => {
+  copyTimers.forEach(id => clearTimeout(id))
+  copyTimers.length = 0
 })
 </script>
 
@@ -300,12 +500,16 @@ const formattedDate = computed(() => {
 
 /* 图片网格 */
 .modal-gallery-grid {
-  flex: 1;
-  overflow-y: auto;
   padding: 20px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 20px;
+}
+
+/* 图片 + 文字内容共用的滚动容器 */
+.modal-scroll {
+  flex: 1;
+  overflow-y: auto;
 }
 
 /* 单个图片项 */
@@ -439,5 +643,212 @@ const formattedDate = computed(() => {
     gap: 12px;
     padding: 12px;
   }
+}
+
+/* ========== 文字内容展示区 ========== */
+.modal-content-section {
+  padding: 0 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.content-card {
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.content-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.content-card-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.content-card-header h4 svg {
+  color: var(--primary, #ff2442);
+}
+
+.content-copy-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #666;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.content-copy-btn:hover {
+  background: var(--primary, #ff2442);
+  color: white;
+  border-color: var(--primary, #ff2442);
+}
+
+.content-copy-btn.copied {
+  background: #e6fffb;
+  border-color: #13c2c2;
+  color: #13c2c2;
+}
+
+.content-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.content-title-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  position: relative;
+}
+
+.content-title-item:hover {
+  background: var(--primary-light, #fff0f2);
+  border-color: var(--primary, #ff2442);
+}
+
+.content-title-item.copied {
+  background: #e6fffb;
+  border-color: #13c2c2;
+}
+
+.title-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: var(--primary, #ff2442);
+  color: white;
+}
+
+.content-title-item:not(:first-child) .title-badge {
+  background: #999;
+}
+
+.title-text {
+  flex: 1;
+  font-size: 14px;
+  color: #1a1a1a;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.copy-hint {
+  font-size: 12px;
+  color: #999;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.content-title-item:hover .copy-hint,
+.content-title-item.copied .copy-hint {
+  opacity: 1;
+}
+
+.content-title-item.copied .copy-hint {
+  color: #13c2c2;
+}
+
+.content-copywriting {
+  font-size: 14px;
+  color: #333;
+  line-height: 1.75;
+  background: white;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-height: 260px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.content-copywriting p {
+  margin: 0 0 10px;
+}
+
+.content-copywriting p:last-child {
+  margin-bottom: 0;
+}
+
+.content-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-chip {
+  padding: 4px 12px;
+  font-size: 13px;
+  color: var(--primary, #ff2442);
+  background: var(--primary-light, #fff0f2);
+  border-radius: 100px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tag-chip:hover {
+  background: var(--primary, #ff2442);
+  color: white;
+}
+
+.tag-chip.copied {
+  background: #13c2c2;
+  color: white;
+}
+
+.content-empty {
+  padding: 24px;
+  background: #fafafa;
+  border: 1px dashed #e0e0e0;
+  border-radius: 10px;
+  text-align: center;
+  color: #999;
+}
+
+.content-empty-icon {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 8px;
+  border-radius: 50%;
+  background: #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+}
+
+.content-empty-title {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.content-empty-hint {
+  font-size: 12px;
+  color: #999;
+  line-height: 1.5;
 }
 </style>

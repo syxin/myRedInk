@@ -232,6 +232,7 @@ def create_history_blueprint():
             images = data.get('images')
             status = data.get('status')
             thumbnail = data.get('thumbnail')
+            content = data.get('content')
 
             history_service = get_history_service()
             success = history_service.update_record(
@@ -239,7 +240,8 @@ def create_history_blueprint():
                 outline=outline,
                 images=images,
                 status=status,
-                thumbnail=thumbnail
+                thumbnail=thumbnail,
+                content=content
             )
 
             if not success:

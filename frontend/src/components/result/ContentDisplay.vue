@@ -136,7 +136,7 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue'
 import { useGeneratorStore } from '../../stores/generator'
-import { generateContent } from '../../api'
+import { generateContent, updateHistory } from '../../api'
 
 const store = useGeneratorStore()
 
@@ -182,6 +182,21 @@ async function handleGenerate() {
 
     if (result.success && result.titles && result.copywriting && result.tags) {
       store.setContent(result.titles, result.copywriting, result.tags)
+      // 生成成功后，尽力把内容同步到历史记录里，供预览页展示。
+      // 失败不阻断用户当前流程，仅记录日志。
+      if (store.recordId) {
+        try {
+          await updateHistory(store.recordId, {
+            content: {
+              titles: result.titles,
+              copywriting: result.copywriting,
+              tags: result.tags
+            }
+          })
+        } catch (err) {
+          console.error('保存标题/文案/标签到历史记录失败:', err)
+        }
+      }
     } else {
       store.setContentError(result.error || '生成失败')
     }
