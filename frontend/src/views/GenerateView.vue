@@ -149,7 +149,8 @@ function retrySingleImage(index: number) {
     fullOutline: store.outline.raw || '',
     userTopic: store.topic || '',
     imageSize: store.imageSize,
-    aspectRatio: store.imageAspectRatio
+    aspectRatio: store.imageAspectRatio,
+    sequentialReference: store.sequentialReference
   }
 
   // 异步执行重绘，不阻塞
@@ -338,7 +339,9 @@ onMounted(async () => {
     // aspectRatio - 用户选择的宽高比
     store.imageAspectRatio,
     // imageSizeBase - 用户选择的档位 1K/2K/4K
-    store.imageSizeBase
+    store.imageSizeBase,
+    // sequentialReference - 依次参考开关
+    store.sequentialReference
   )
 })
 

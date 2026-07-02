@@ -26,6 +26,7 @@
         @imagesChange="handleImagesChange"
         @pageCountChange="handlePageCountChange"
         @resolutionChange="handleResolutionChange"
+        @sequentialReferenceChange="handleSequentialReferenceChange"
       />
     </div>
 
@@ -77,6 +78,8 @@ const pageCount = ref<number | null>(null)
 const imageSize = ref<string | null>(null)
 const imageSizeBase = ref<string | null>(null)   // 档位名 "1K"/"2K"/"4K"
 const imageAspectRatio = ref<string | null>(null)
+// 依次参考开关（前端本地状态；仅在张数 == 参考图张数时才可能为 true）
+const sequentialReference = ref<boolean>(false)
 
 /**
  * 处理图片变化
@@ -106,6 +109,13 @@ function handleResolutionChange(value: {
 }
 
 /**
+ * 处理「依次参考」开关变化
+ */
+function handleSequentialReferenceChange(value: boolean) {
+  sequentialReference.value = value
+}
+
+/**
  * 生成大纲
  */
 async function handleGenerate() {
@@ -120,7 +130,8 @@ async function handleGenerate() {
     const result = await generateOutline(
       topic.value.trim(),
       imageFiles.length > 0 ? imageFiles : undefined,
-      pageCount.value ?? undefined
+      pageCount.value ?? undefined,
+      sequentialReference.value
     )
 
     if (result.success && result.pages) {
@@ -164,6 +175,8 @@ async function handleGenerate() {
       store.imageSize = imageSize.value
       store.imageSizeBase = imageSizeBase.value
       store.imageAspectRatio = imageAspectRatio.value
+      // 保存「依次参考」开关状态
+      store.sequentialReference = sequentialReference.value
 
       // 清理 ComposerInput 的预览
       composerRef.value?.clearPreviews()

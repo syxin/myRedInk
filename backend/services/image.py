@@ -244,7 +244,8 @@ class ImageService:
         user_topic: str = "",
         image_size: Optional[str] = None,
         aspect_ratio: Optional[str] = None,
-        image_size_base: Optional[str] = None
+        image_size_base: Optional[str] = None,
+        sequential_reference: bool = False
     ) -> Generator[Dict[str, Any], None, None]:
         """
         生成图片（生成器，支持 SSE 流式返回）
@@ -258,6 +259,8 @@ class ImageService:
             user_topic: 用户原始输入（用于保持意图一致）
             image_size: 用户选择的基准分辨率（如 "1K"/"2K"/"4K"）
             aspect_ratio: 用户选择的宽高比
+            sequential_reference: 「依次参考」开关。开启且 len(user_images) == len(pages) 时，
+                第 N 页仅使用第 N 张用户参考图；关闭时保持旧逻辑（合并封面 + 所有用户图）。
 
         Yields:
             进度事件字典
@@ -282,6 +285,20 @@ class ImageService:
         if user_images:
             compressed_user_images = [compress_image(img, max_size_kb=200) for img in user_images]
 
+        # 判断「依次参考」是否真正生效：开关开启 + 参考图张数 == 页面张数
+        seq_ref_enabled = bool(
+            sequential_reference
+            and compressed_user_images
+            and len(compressed_user_images) == total
+        )
+        if sequential_reference and not seq_ref_enabled:
+            logger.warning(
+                f"「依次参考」被请求但未生效：user_images={len(compressed_user_images) if compressed_user_images else 0}, "
+                f"pages={total}"
+            )
+        if seq_ref_enabled:
+            logger.info(f"✅ 「依次参考」已启用：{total} 页 与 {len(compressed_user_images)} 张参考图一一对应")
+
         # 初始化任务状态
         self._task_states[task_id] = {
             "pages": pages,
@@ -294,6 +311,8 @@ class ImageService:
             "image_size": image_size,
             "aspect_ratio": aspect_ratio,
             "image_size_base": image_size_base,
+            "sequential_reference": seq_ref_enabled,
+            "total_pages": total,
         }
 
         # ==================== 第一阶段：生成封面 ====================
@@ -325,10 +344,16 @@ class ImageService:
                 }
             }
 
-            # 生成封面（使用用户上传的图片作为参考）
+            # 生成封面
+            # 「依次参考」开启时：封面仅使用其索引对应的那一张用户图；不合并其他用户图
+            # 未开启时：保持旧逻辑，把所有用户图作为参考传给封面
+            if seq_ref_enabled:
+                cover_user_images = [compressed_user_images[cover_page["index"]]]
+            else:
+                cover_user_images = compressed_user_images
             index, success, filename, error = self._generate_single_image(
                 cover_page, task_id, reference_image=None, full_outline=full_outline,
-                user_images=compressed_user_images, user_topic=user_topic,
+                user_images=cover_user_images, user_topic=user_topic,
                 image_size=image_size, aspect_ratio=aspect_ratio,
                 image_size_base=image_size_base
             )
@@ -396,10 +421,14 @@ class ImageService:
                             self._generate_single_image,
                             page,
                             task_id,
-                            cover_image_data,  # 使用封面作为参考
+                            None if seq_ref_enabled else cover_image_data,  # 依次参考模式下不再叠加封面
                             0,  # retry_count
                             full_outline,  # 传入完整大纲
-                            compressed_user_images,  # 用户上传的参考图片（已压缩）
+                            (
+                                [compressed_user_images[page["index"]]]
+                                if seq_ref_enabled
+                                else compressed_user_images
+                            ),  # 依次参考：仅当页对应的那张
                             user_topic,  # 用户原始输入
                             image_size,
                             aspect_ratio,
@@ -500,10 +529,14 @@ class ImageService:
                     index, success, filename, error = self._generate_single_image(
                         page,
                         task_id,
-                        cover_image_data,
+                        None if seq_ref_enabled else cover_image_data,
                         0,
                         full_outline,
-                        compressed_user_images,
+                        (
+                            [compressed_user_images[page["index"]]]
+                            if seq_ref_enabled
+                            else compressed_user_images
+                        ),
                         user_topic,
                         image_size,
                         aspect_ratio,
@@ -561,7 +594,8 @@ class ImageService:
         user_topic: str = "",
         image_size: Optional[str] = None,
         aspect_ratio: Optional[str] = None,
-        image_size_base: Optional[str] = None
+        image_size_base: Optional[str] = None,
+        sequential_reference: Optional[bool] = None
     ) -> Dict[str, Any]:
         """
         重试生成单张图片
@@ -572,6 +606,7 @@ class ImageService:
             use_reference: 是否使用封面作为参考
             full_outline: 完整大纲文本（从前端传入）
             user_topic: 用户原始输入（从前端传入）
+            sequential_reference: 依次参考开关；为 None 时沿用任务状态中保存的值
 
         Returns:
             生成结果
@@ -585,6 +620,7 @@ class ImageService:
         task_image_size = None
         task_aspect_ratio = None
         task_image_size_base = None
+        seq_ref_enabled = False
 
         # 首先尝试从任务状态中获取上下文
         if task_id in self._task_states:
@@ -600,14 +636,29 @@ class ImageService:
             task_image_size = task_state.get("image_size")
             task_aspect_ratio = task_state.get("aspect_ratio")
             task_image_size_base = task_state.get("image_size_base")
+            seq_ref_enabled = bool(task_state.get("sequential_reference", False))
+
+        # 显式传入的开关值覆盖任务状态；再次校验条件
+        if sequential_reference is not None:
+            seq_ref_enabled = bool(sequential_reference)
+        if seq_ref_enabled:
+            total_pages = None
+            if task_id in self._task_states:
+                total_pages = self._task_states[task_id].get("total_pages")
+            if not user_images or total_pages is None or len(user_images) != total_pages:
+                seq_ref_enabled = False
 
         # 调用方传入的优先，其次任务状态中的
         effective_size = image_size if image_size else task_image_size
         effective_aspect = aspect_ratio if aspect_ratio else task_aspect_ratio
         effective_size_base = image_size_base if image_size_base else task_image_size_base
 
-        # 如果任务状态中没有封面图，尝试从文件系统加载
-        if use_reference and reference_image is None:
+        # 依次参考模式下不再叠加封面；仅在关闭时才拉取封面
+        if seq_ref_enabled:
+            reference_image = None
+
+        # 如果任务状态中没有封面图，尝试从文件系统加载（依次参考模式跳过）
+        if use_reference and reference_image is None and not seq_ref_enabled:
             cover_path = os.path.join(self.current_task_dir, "0.png")
             if os.path.exists(cover_path):
                 with open(cover_path, "rb") as f:
@@ -615,13 +666,22 @@ class ImageService:
                 # 压缩封面图到 200KB
                 reference_image = compress_image(cover_data, max_size_kb=200)
 
+        # 「依次参考」开启时：只把该页对应的那张用户图作为参考
+        effective_user_images = user_images
+        if seq_ref_enabled and user_images:
+            page_index = page.get("index", 0)
+            if 0 <= page_index < len(user_images):
+                effective_user_images = [user_images[page_index]]
+            else:
+                logger.warning(f"依次参考：页面索引 {page_index} 越界，回退到全部参考图")
+
         index, success, filename, error = self._generate_single_image(
             page,
             task_id,
             reference_image,
             0,
             full_outline,
-            user_images,
+            effective_user_images,
             user_topic,
             effective_size,
             effective_aspect,
@@ -664,8 +724,22 @@ class ImageService:
         """
         # 获取参考图
         reference_image = None
+        seq_ref_enabled = False
+        task_user_images: Optional[List[bytes]] = None
+        task_total_pages: Optional[int] = None
         if task_id in self._task_states:
             reference_image = self._task_states[task_id].get("cover_image")
+            seq_ref_enabled = bool(self._task_states[task_id].get("sequential_reference", False))
+            task_user_images = self._task_states[task_id].get("user_images")
+            task_total_pages = self._task_states[task_id].get("total_pages")
+
+        # 依次参考模式下：不再用封面做参考，并要求 user_images 数量与总页数一致
+        if seq_ref_enabled:
+            if not task_user_images or task_total_pages is None or len(task_user_images) != task_total_pages:
+                logger.warning("批量重试：依次参考条件不满足，回退到常规参考图逻辑")
+                seq_ref_enabled = False
+            else:
+                reference_image = None
 
         total = len(pages)
         success_count = 0
@@ -692,22 +766,31 @@ class ImageService:
             image_size_base = self._task_states[task_id].get("image_size_base")
 
         with ThreadPoolExecutor(max_workers=self.MAX_CONCURRENT) as executor:
-            future_to_page = {
-                executor.submit(
+            def _submit(page):
+                if seq_ref_enabled and task_user_images:
+                    idx = page.get("index", 0)
+                    per_page_images = (
+                        [task_user_images[idx]]
+                        if 0 <= idx < len(task_user_images)
+                        else None
+                    )
+                else:
+                    per_page_images = None  # 保持既有行为：批量重试不再合并用户图
+                return executor.submit(
                     self._generate_single_image,
                     page,
                     task_id,
                     reference_image,
                     0,  # retry_count
                     full_outline,  # 传入完整大纲
-                    None,  # user_images
+                    per_page_images,
                     "",    # user_topic
                     image_size,
                     aspect_ratio,
                     image_size_base
-                ): page
-                for page in pages
-            }
+                )
+
+            future_to_page = {_submit(page): page for page in pages}
 
             for future in as_completed(future_to_page):
                 page = future_to_page[future]
@@ -772,7 +855,8 @@ class ImageService:
         user_topic: str = "",
         image_size: Optional[str] = None,
         aspect_ratio: Optional[str] = None,
-        image_size_base: Optional[str] = None
+        image_size_base: Optional[str] = None,
+        sequential_reference: Optional[bool] = None
     ) -> Dict[str, Any]:
         """
         重新生成图片（用户手动触发，即使成功的也可以重新生成）
@@ -793,7 +877,8 @@ class ImageService:
             user_topic=user_topic,
             image_size=image_size,
             aspect_ratio=aspect_ratio,
-            image_size_base=image_size_base
+            image_size_base=image_size_base,
+            sequential_reference=sequential_reference
         )
 
     def get_image_path(self, task_id: str, filename: str) -> str:

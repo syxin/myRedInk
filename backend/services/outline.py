@@ -133,12 +133,14 @@ class OutlineService:
         self,
         topic: str,
         images: Optional[List[bytes]] = None,
-        page_count: Optional[int] = None
+        page_count: Optional[int] = None,
+        sequential_reference: bool = False
     ) -> Dict[str, Any]:
         try:
             logger.info(
                 f"开始生成大纲: topic={topic[:50]}..., "
-                f"images={len(images) if images else 0}, page_count={page_count}"
+                f"images={len(images) if images else 0}, page_count={page_count}, "
+                f"sequential_reference={sequential_reference}"
             )
             prompt = self.prompt_template.format(topic=topic)
 
@@ -151,8 +153,42 @@ class OutlineService:
                 logger.debug(f"附加用户指定页数约束: {page_count}")
 
             if images and len(images) > 0:
-                prompt += f"\n\n注意：用户提供了 {len(images)} 张参考图片，请在生成大纲时考虑这些图片的内容和风格。这些图片可能是产品图、个人照片或场景图，请根据图片内容来优化大纲，使生成的内容与图片相关联。"
-                logger.debug(f"添加了 {len(images)} 张参考图片到提示词")
+                # 判断「依次参考」是否真正生效：开关开启 + 张数 == 图片数
+                seq_enabled = bool(
+                    sequential_reference
+                    and page_count is not None
+                    and page_count > 0
+                    and len(images) == page_count
+                )
+                if seq_enabled:
+                    lines = [
+                        f"\n\n注意：用户提供了 {len(images)} 张参考图片，"
+                        "并开启了「依次参考」模式，请按以下一一对应关系撰写大纲："
+                    ]
+                    for i in range(len(images)):
+                        lines.append(
+                            f"- 请在生成第 {i + 1} 页大纲时参考第 {i + 1} 张图片的内容和风格。"
+                        )
+                    lines.append(
+                        "每一页的文字必须与其对应的那张图片在主题、场景或风格上贴合，"
+                        "不要把某一张图片的元素挪到其它页面中去。"
+                    )
+                    prompt += "\n".join(lines)
+                    logger.debug(
+                        f"「依次参考」大纲提示已启用：{len(images)} 张图片一一对应 {page_count} 页"
+                    )
+                else:
+                    if sequential_reference:
+                        logger.warning(
+                            f"「依次参考」被请求但未生效：images={len(images)}, page_count={page_count}"
+                        )
+                    prompt += (
+                        f"\n\n注意：用户提供了 {len(images)} 张参考图片，"
+                        "请在生成大纲时考虑这些图片的内容和风格。"
+                        "这些图片可能是产品图、个人照片或场景图，"
+                        "请根据图片内容来优化大纲，使生成的内容与图片相关联。"
+                    )
+                    logger.debug(f"添加了 {len(images)} 张参考图片到提示词（普通模式）")
 
             # 从配置中获取模型参数
             active_provider = self.text_config.get('active_provider', 'google_gemini')

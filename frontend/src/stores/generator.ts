@@ -75,6 +75,9 @@ export interface GeneratorState {
   imageSizeBase: string | null
   imageAspectRatio: string | null
 
+  // 「依次参考」开关：开启时后端将按顺序把第 N 张参考图分配给第 N 页
+  sequentialReference: boolean
+
   // 生成的内容数据（标题、文案、标签）
   content: GeneratedContent
 
@@ -117,7 +120,8 @@ function saveState(state: GeneratorState) {
       lastSavedAt: state.lastSavedAt,        // 最后保存时间
       imageSize: state.imageSize,            // 用户指定的基准分辨率/尺寸
       imageSizeBase: state.imageSizeBase,    // 用户指定的档位 1K/2K/4K
-      imageAspectRatio: state.imageAspectRatio  // 用户指定的宽高比
+      imageAspectRatio: state.imageAspectRatio,  // 用户指定的宽高比
+      sequentialReference: state.sequentialReference  // 依次参考开关
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave))
   } catch (e) {
@@ -164,6 +168,8 @@ export const useGeneratorStore = defineStore('generator', {
       imageSize: (saved as any).imageSize ?? null,
       imageSizeBase: (saved as any).imageSizeBase ?? null,
       imageAspectRatio: (saved as any).imageAspectRatio ?? null,
+      // 「依次参考」开关（从 localStorage 恢复）
+      sequentialReference: (saved as any).sequentialReference ?? false,
 
       // 生成的内容数据
       content: saved.content || {
@@ -434,6 +440,9 @@ export const useGeneratorStore = defineStore('generator', {
       // 清空用户上传的参考图片
       this.userImages = []
 
+      // 关闭「依次参考」开关
+      this.sequentialReference = false
+
       // 重置生成的内容数据
       this.content = {
         titles: [],          // 清空标题列表
@@ -585,7 +594,8 @@ export function setupAutoSave() {
       recordId: store.recordId,              // 历史记录ID
       content: store.content,                // 生成的内容
       outlineStatus: store.outlineStatus,    // 大纲生成状态
-      lastSavedAt: store.lastSavedAt         // 最后保存时间
+      lastSavedAt: store.lastSavedAt,        // 最后保存时间
+      sequentialReference: store.sequentialReference  // 依次参考开关
     }),
     () => {
       store.saveToStorage()

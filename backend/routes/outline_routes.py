@@ -42,9 +42,14 @@ def create_outline_blueprint():
 
         try:
             # 解析请求数据
-            topic, images, page_count = _parse_outline_request()
+            topic, images, page_count, sequential_reference = _parse_outline_request()
 
-            log_request('/outline', {'topic': topic, 'images': images, 'page_count': page_count})
+            log_request('/outline', {
+                'topic': topic,
+                'images': images,
+                'page_count': page_count,
+                'sequential_reference': sequential_reference
+            })
 
             # 验证必填参数
             if not topic:
@@ -60,7 +65,8 @@ def create_outline_blueprint():
             result = outline_service.generate_outline(
                 topic,
                 images if images else None,
-                page_count=page_count
+                page_count=page_count,
+                sequential_reference=sequential_reference
             )
 
             # 记录结果
@@ -92,12 +98,17 @@ def _parse_outline_request():
     2. application/json - 用于 base64 图片
 
     返回：
-        tuple: (topic, images, page_count) - 主题、图片列表、用户指定的生成页数（None 表示未指定）
+        tuple: (topic, images, page_count, sequential_reference)
+            - topic:                主题文本
+            - images:               图片二进制列表
+            - page_count:           用户指定的生成页数（None 表示未指定）
+            - sequential_reference: 「依次参考」开关（默认 False）
     """
     # 检查是否是 multipart/form-data（带图片文件）
     if request.content_type and 'multipart/form-data' in request.content_type:
         topic = request.form.get('topic')
         page_count = _coerce_page_count(request.form.get('page_count'))
+        sequential_reference = _coerce_bool(request.form.get('sequential_reference'))
         images = []
 
         # 获取上传的图片文件
@@ -108,12 +119,13 @@ def _parse_outline_request():
                     image_data = file.read()
                     images.append(image_data)
 
-        return topic, images, page_count
+        return topic, images, page_count, sequential_reference
 
     # JSON 请求（无图片或 base64 图片）
     data = request.get_json()
     topic = data.get('topic')
     page_count = _coerce_page_count(data.get('page_count'))
+    sequential_reference = bool(data.get('sequential_reference', False))
     images = []
 
     # 支持 base64 格式的图片
@@ -125,7 +137,7 @@ def _parse_outline_request():
                 img_b64 = img_b64.split(',')[1]
             images.append(base64.b64decode(img_b64))
 
-    return topic, images, page_count
+    return topic, images, page_count, sequential_reference
 
 
 def _coerce_page_count(raw):
@@ -143,3 +155,12 @@ def _coerce_page_count(raw):
     if value > 30:
         value = 30
     return value
+
+
+def _coerce_bool(raw):
+    """把 form-data 里的布尔字段（字符串或 None）转成 Python bool。"""
+    if raw is None:
+        return False
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")

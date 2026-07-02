@@ -34,7 +34,8 @@ export interface FinishEvent {
 export async function generateOutline(
   topic: string,
   images?: File[],
-  pageCount?: number
+  pageCount?: number,
+  sequentialReference?: boolean
 ): Promise<OutlineResponse & { has_images?: boolean }> {
   // 如果有图片，使用 FormData
   if (images && images.length > 0) {
@@ -42,6 +43,9 @@ export async function generateOutline(
     formData.append('topic', topic)
     if (pageCount && pageCount > 0) {
       formData.append('page_count', String(pageCount))
+    }
+    if (sequentialReference === true) {
+      formData.append('sequential_reference', 'true')
     }
     images.forEach((file) => {
       formData.append('images', file)
@@ -64,6 +68,9 @@ export async function generateOutline(
   if (pageCount && pageCount > 0) {
     payload.page_count = pageCount
   }
+  if (sequentialReference === true) {
+    payload.sequential_reference = true
+  }
   const response = await axios.post<OutlineResponse>(`${API_BASE_URL}/outline`, payload)
   return response.data
 }
@@ -85,6 +92,7 @@ export async function regenerateImage(
     userTopic?: string
     imageSize?: string | null
     aspectRatio?: string | null
+    sequentialReference?: boolean
   }
 ): Promise<{ success: boolean; index: number; image_url?: string; error?: string }> {
   const response = await axios.post(`${API_BASE_URL}/regenerate`, {
@@ -94,7 +102,8 @@ export async function regenerateImage(
     full_outline: context?.fullOutline,
     user_topic: context?.userTopic,
     image_size: context?.imageSize || undefined,
-    aspect_ratio: context?.aspectRatio || undefined
+    aspect_ratio: context?.aspectRatio || undefined,
+    sequential_reference: context?.sequentialReference === true ? true : undefined
   })
   return response.data
 }
@@ -638,7 +647,8 @@ export async function generateImagesPost(
   userTopic?: string,
   imageSize?: string | null,
   aspectRatio?: string | null,
-  imageSizeBase?: string | null
+  imageSizeBase?: string | null,
+  sequentialReference?: boolean
 ) {
   try {
     // 将用户图片转换为 base64
@@ -669,7 +679,8 @@ export async function generateImagesPost(
         user_topic: userTopic || '',
         image_size: imageSize || undefined,
         aspect_ratio: aspectRatio || undefined,
-        image_size_base: imageSizeBase || undefined
+        image_size_base: imageSizeBase || undefined,
+        sequential_reference: sequentialReference === true ? true : undefined
       })
     })
 

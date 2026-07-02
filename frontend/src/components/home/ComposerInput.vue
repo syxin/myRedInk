@@ -244,6 +244,20 @@
             </div>
           </div>
         </div>
+
+        <!-- 依次参考开关：仅当生成张数 == 上传参考图张数时可开启 -->
+        <div class="sequential-ref-control" :title="sequentialTooltip">
+          <label class="sequential-switch" :class="{ disabled: !canEnableSequential }">
+            <input
+              type="checkbox"
+              :checked="sequentialReference"
+              :disabled="!canEnableSequential || loading"
+              @change="onSequentialToggle"
+            />
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span class="switch-label">依次参考</span>
+          </label>
+        </div>
       </div>
       <div class="toolbar-right">
         <button
@@ -294,6 +308,7 @@ const emit = defineEmits<{
     image_size: string | null      // 档位名 "1K"/"2K"/"4K"，custom 模式为 null
     aspect_ratio: string | null
   }): void
+  (e: 'sequentialReferenceChange', value: boolean): void
 }>()
 
 // 输入框引用
@@ -311,6 +326,44 @@ const pageCount = ref(8)
 const pageCountActive = ref(false)
 // 快捷按钮选项
 const quickOptions = [3, 6, 8, 12, 15, 18]
+
+// ========== 依次参考开关 ==========
+// 仅当用户主动设置了张数、且张数 == 上传参考图张数时可开启
+const sequentialReference = ref(false)
+const canEnableSequential = computed(() => {
+  return (
+    uploadedImages.value.length > 0 &&
+    pageCountActive.value &&
+    pageCount.value === uploadedImages.value.length
+  )
+})
+const sequentialTooltip = computed(() => {
+  if (uploadedImages.value.length === 0) {
+    return '请先上传参考图后再启用「依次参考」'
+  }
+  if (!pageCountActive.value) {
+    return '请先设置生成张数，等于上传参考图张数时可开启'
+  }
+  if (pageCount.value !== uploadedImages.value.length) {
+    return `生成张数 ${pageCount.value} 需与参考图张数 ${uploadedImages.value.length} 一致才能开启`
+  }
+  return '开启后：第 N 张图片仅使用第 N 张参考图'
+})
+
+function onSequentialToggle(event: Event) {
+  const target = event.target as HTMLInputElement
+  const next = target.checked && canEnableSequential.value
+  sequentialReference.value = next
+  emit('sequentialReferenceChange', next)
+}
+
+// 当参考图张数 / 页数张数变化导致条件不再满足时，自动关闭并广播
+function ensureSequentialConsistency() {
+  if (!canEnableSequential.value && sequentialReference.value) {
+    sequentialReference.value = false
+    emit('sequentialReferenceChange', false)
+  }
+}
 
 function togglePageCountMenu() {
   showPageCountMenu.value = !showPageCountMenu.value
@@ -330,12 +383,14 @@ function applyPageCount(count: number) {
   pageCount.value = count
   pageCountActive.value = true
   emit('pageCountChange', count)
+  ensureSequentialConsistency()
 }
 
 function clearPageCount() {
   pageCountActive.value = false
   pageCount.value = 8
   emit('pageCountChange', null)
+  ensureSequentialConsistency()
 }
 
 function onSliderInput(event: Event) {
@@ -344,6 +399,7 @@ function onSliderInput(event: Event) {
     pageCount.value = value
     pageCountActive.value = true
     emit('pageCountChange', value)
+    ensureSequentialConsistency()
   }
 }
 
@@ -355,6 +411,7 @@ function onNumberInput(event: Event) {
     pageCount.value = clamped
     pageCountActive.value = true
     emit('pageCountChange', clamped)
+    ensureSequentialConsistency()
   }
 }
 
@@ -638,6 +695,7 @@ function removeImage(index: number) {
 function emitImagesChange() {
   const files = uploadedImages.value.map(img => img.file)
   emit('imagesChange', files)
+  ensureSequentialConsistency()
 }
 
 /**
@@ -1251,5 +1309,88 @@ defineExpose({
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ========== 依次参考开关 ========== */
+.sequential-ref-control {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+}
+
+.sequential-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: 40px;
+  border-radius: 10px;
+  background: #f5f5f5;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+}
+
+.sequential-switch:hover:not(.disabled) {
+  background: #eee;
+}
+
+.sequential-switch input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+
+.switch-track {
+  position: relative;
+  width: 30px;
+  height: 16px;
+  border-radius: 999px;
+  background: #cfcfcf;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s ease;
+}
+
+.sequential-switch input:checked + .switch-track {
+  background: var(--primary, #ff2442);
+}
+
+.sequential-switch input:checked + .switch-track .switch-thumb {
+  transform: translateX(14px);
+}
+
+.switch-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-sub, #666);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.sequential-switch input:checked ~ .switch-label {
+  color: var(--primary, #ff2442);
+}
+
+.sequential-switch.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sequential-switch.disabled .switch-track {
+  background: #d9d9d9;
 }
 </style>

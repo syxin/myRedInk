@@ -53,6 +53,7 @@ def create_image_blueprint():
             image_size = data.get('image_size')   # 用户选择的分辨率，如 "1K"/"2K"/"4K"
             aspect_ratio = data.get('aspect_ratio')  # 用户选择的宽高比，如 "3:4"
             image_size_base = data.get('image_size_base')  # 档位名 "1K"/"2K"/"4K"
+            sequential_reference = bool(data.get('sequential_reference', False))  # 「依次参考」开关
 
             # 解析 base64 格式的用户参考图片
             user_images = _parse_base64_images(data.get('user_images', []))
@@ -64,7 +65,8 @@ def create_image_blueprint():
                 'user_images': user_images,
                 'image_size': image_size,
                 'aspect_ratio': aspect_ratio,
-                'image_size_base': image_size_base
+                'image_size_base': image_size_base,
+                'sequential_reference': sequential_reference
             })
 
             if not pages:
@@ -85,7 +87,8 @@ def create_image_blueprint():
                     user_topic=user_topic,
                     image_size=image_size,
                     aspect_ratio=aspect_ratio,
-                    image_size_base=image_size_base
+                    image_size_base=image_size_base,
+                    sequential_reference=sequential_reference
                 ):
                     event_type = event["event"]
                     event_data = event["data"]
@@ -305,6 +308,7 @@ def create_image_blueprint():
             image_size = data.get('image_size')
             aspect_ratio = data.get('aspect_ratio')
             image_size_base = data.get('image_size_base')
+            sequential_reference = data.get('sequential_reference')  # 可为 None，表示沿用任务状态里保留的值
 
             log_request('/regenerate', {
                 'task_id': task_id,
@@ -326,7 +330,8 @@ def create_image_blueprint():
                 user_topic=user_topic,
                 image_size=image_size,
                 aspect_ratio=aspect_ratio,
-                image_size_base=image_size_base
+                image_size_base=image_size_base,
+                sequential_reference=sequential_reference
             )
 
             if result["success"]:
