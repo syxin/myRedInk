@@ -1349,11 +1349,11 @@ defineExpose({
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .size-option {
-  padding: 10px 0;
+  padding: 8px 0;
   background: #fafafa;
   border: 1px solid #e8e8e8;
   border-radius: 8px;
@@ -1378,8 +1378,8 @@ defineExpose({
 .ratio-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 6px;
+  margin-bottom: 12px;
 }
 
 .ratio-option {
@@ -1387,8 +1387,8 @@ defineExpose({
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 10px 0;
+  gap: 4px;
+  padding: 6px 0;
   background: #fafafa;
   border: 1px solid #e8e8e8;
   border-radius: 8px;
@@ -1472,20 +1472,24 @@ defineExpose({
 }
 
 .resolution-preview {
-  padding: 12px 14px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
   background: #f8f8f8;
   border-radius: 8px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .preview-label {
   font-size: 12px;
   color: var(--text-sub, #888);
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 
 .preview-value {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-main, #1a1a1a);
 }
