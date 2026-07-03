@@ -22,21 +22,48 @@
 
     <!-- 已上传图片预览 -->
     <div v-if="uploadedImages.length > 0" class="uploaded-images-preview">
+      <div class="uploaded-images-track" @dragstart.prevent>
       <div
         v-for="(img, idx) in uploadedImages"
-        :key="idx"
+        :key="img.preview"
         class="uploaded-image-item"
+        :class="{
+          'is-dragging': draggingIndex === idx,
+          'is-drop-target':
+            dragOverIndex === idx && draggingIndex !== null && draggingIndex !== idx
+        }"
+        :data-drag-index="idx"
+        :title="uploadedImages.length > 1 ? `第 ${idx + 1} 张，拖动可调整顺序` : ''"
+        @pointerdown="onPointerDown(idx, $event)"
       >
-        <img :src="img.preview" :alt="`图片 ${idx + 1}`" />
-        <button class="remove-image-btn" @click="removeImage(idx)">
+        <img
+          :src="img.preview"
+          :alt="`图片 ${idx + 1}`"
+          draggable="false"
+          @dragstart.prevent
+        />
+        <span v-if="uploadedImages.length > 1" class="order-badge">{{ idx + 1 }}</span>
+
+        <button
+          class="remove-image-btn"
+          type="button"
+          @click.stop="removeImage(idx)"
+          @pointerdown.stop
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
           </svg>
         </button>
       </div>
+      </div>
       <div class="upload-hint">
-        这些图片将用于生成封面和内容参考
+        <template v-if="uploadedImages.length > 1">
+          按顺序参考，可拖动图片调整顺序
+        </template>
+        <template v-else>
+          这些图片将用于生成封面和内容参考
+        </template>
       </div>
     </div>
 
@@ -330,6 +357,9 @@ const quickOptions = [3, 6, 8, 12, 15, 18]
 // ========== 依次参考开关 ==========
 // 仅当用户主动设置了张数、且张数 == 上传参考图张数时可开启
 const sequentialReference = ref(false)
+// 记录用户是否在"条件满足"期间手动关闭过；一旦条件跨出满足区间再回来，就重置这个标记。
+// 用来避免"用户明确关掉后又被自动重新打开"的骚扰。
+const sequentialUserClosed = ref(false)
 const canEnableSequential = computed(() => {
   return (
     uploadedImages.value.length > 0 &&
@@ -354,14 +384,28 @@ function onSequentialToggle(event: Event) {
   const target = event.target as HTMLInputElement
   const next = target.checked && canEnableSequential.value
   sequentialReference.value = next
+  // 用户主动关闭时记住这个选择；主动开启则清掉标记
+  sequentialUserClosed.value = canEnableSequential.value && !next
   emit('sequentialReferenceChange', next)
 }
 
-// 当参考图张数 / 页数张数变化导致条件不再满足时，自动关闭并广播
+// 参考图张数 / 页数张数变化时同步「依次参考」开关：
+// - 条件不再满足 -> 关闭；同时清掉"用户手动关闭"的标记，方便下一次条件重新达成后可以再自动打开
+// - 条件满足且用户没有明确关过 -> 自动打开，让用户少一步操作
+// - 条件满足但用户已手动关过 -> 保持关闭，尊重用户的选择
 function ensureSequentialConsistency() {
-  if (!canEnableSequential.value && sequentialReference.value) {
-    sequentialReference.value = false
-    emit('sequentialReferenceChange', false)
+  if (!canEnableSequential.value) {
+    if (sequentialReference.value) {
+      sequentialReference.value = false
+      emit('sequentialReferenceChange', false)
+    }
+    // 条件掉出满足区间，重置手动关闭标记：下次达成时可以再自动打开
+    sequentialUserClosed.value = false
+    return
+  }
+  if (!sequentialReference.value && !sequentialUserClosed.value) {
+    sequentialReference.value = true
+    emit('sequentialReferenceChange', true)
   }
 }
 
@@ -698,6 +742,121 @@ function emitImagesChange() {
   ensureSequentialConsistency()
 }
 
+// ========== 参考图拖拽排序（基于 pointer 事件手写）==========
+// 当前正在被按住并拖动的下标
+const draggingIndex = ref<number | null>(null)
+// 光标当前 hover 到的目标下标，用于高亮 drop 区
+const dragOverIndex = ref<number | null>(null)
+// 判定"真正开始拖动"的位移阈值，避免和点击误触
+const DRAG_START_THRESHOLD = 5
+let pointerStartX = 0
+let pointerStartY = 0
+let pointerActiveId: number | null = null
+let pointerActiveTarget: HTMLElement | null = null
+let pointerMoved = false
+
+function onPointerDown(idx: number, event: PointerEvent) {
+  if (uploadedImages.value.length <= 1 || props.loading) return
+  if (event.button !== undefined && event.button !== 0) return
+
+  // 阻止浏览器默认的图片选中/拖影，避免"整块拖起来"的错觉
+  event.preventDefault()
+
+  pointerStartX = event.clientX
+  pointerStartY = event.clientY
+  pointerActiveId = event.pointerId
+  pointerActiveTarget = event.currentTarget as HTMLElement
+  pointerMoved = false
+  draggingIndex.value = idx
+
+  window.addEventListener('pointermove', onPointerMove)
+  window.addEventListener('pointerup', onPointerUp)
+  window.addEventListener('pointercancel', onPointerCancel)
+}
+
+function findIndexUnderPointer(clientX: number, clientY: number): number | null {
+  const items = document.querySelectorAll<HTMLElement>(
+    '.uploaded-images-track [data-drag-index]'
+  )
+  for (const el of items) {
+    const rect = el.getBoundingClientRect()
+    if (
+      clientX >= rect.left &&
+      clientX <= rect.right &&
+      clientY >= rect.top &&
+      clientY <= rect.bottom
+    ) {
+      const raw = el.getAttribute('data-drag-index')
+      if (raw === null) return null
+      const parsed = Number(raw)
+      return Number.isNaN(parsed) ? null : parsed
+    }
+  }
+  return null
+}
+
+function onPointerMove(event: PointerEvent) {
+  if (draggingIndex.value === null) return
+  if (pointerActiveId !== null && event.pointerId !== pointerActiveId) return
+
+  const dx = event.clientX - pointerStartX
+  const dy = event.clientY - pointerStartY
+  if (!pointerMoved && Math.hypot(dx, dy) < DRAG_START_THRESHOLD) return
+
+  if (!pointerMoved) {
+    pointerMoved = true
+    if (pointerActiveTarget) {
+      try {
+        pointerActiveTarget.setPointerCapture?.(event.pointerId)
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  dragOverIndex.value = findIndexUnderPointer(event.clientX, event.clientY)
+}
+
+function onPointerUp(event: PointerEvent) {
+  if (pointerActiveId !== null && event.pointerId !== pointerActiveId) return
+
+  const from = draggingIndex.value
+  const to = pointerMoved ? findIndexUnderPointer(event.clientX, event.clientY) : null
+
+  cleanupPointerDrag()
+
+  if (from === null || to === null || from === to) return
+
+  const list = uploadedImages.value.slice()
+  const [moved] = list.splice(from, 1)
+  list.splice(to, 0, moved)
+  uploadedImages.value = list
+
+  emitImagesChange()
+}
+
+function onPointerCancel() {
+  cleanupPointerDrag()
+}
+
+function cleanupPointerDrag() {
+  window.removeEventListener('pointermove', onPointerMove)
+  window.removeEventListener('pointerup', onPointerUp)
+  window.removeEventListener('pointercancel', onPointerCancel)
+  if (pointerActiveTarget && pointerActiveId !== null) {
+    try {
+      pointerActiveTarget.releasePointerCapture?.(pointerActiveId)
+    } catch {
+      // ignore
+    }
+  }
+  pointerActiveTarget = null
+  pointerActiveId = null
+  pointerMoved = false
+  draggingIndex.value = null
+  dragOverIndex.value = null
+}
+
 /**
  * 清理所有预览 URL
  */
@@ -775,6 +934,14 @@ defineExpose({
   align-items: center;
 }
 
+.uploaded-images-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  touch-action: none;
+  user-select: none;
+}
+
 .uploaded-image-item {
   position: relative;
   width: 60px;
@@ -782,13 +949,56 @@ defineExpose({
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  user-select: none;
+  -webkit-user-drag: none;
+  cursor: grab;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  touch-action: none;
+}
+
+.uploaded-image-item:active {
+  cursor: grabbing;
+}
+
+.uploaded-image-item.is-dragging {
+  opacity: 0.4;
+}
+
+.uploaded-image-item.is-drop-target {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 36, 66, 0.35);
+  outline: 2px dashed var(--primary, #ff2442);
+  outline-offset: 2px;
 }
 
 .uploaded-image-item img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
 }
+
+/* 序号徽标 */
+.order-badge {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
 
 .remove-image-btn {
   position: absolute;

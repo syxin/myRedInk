@@ -96,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGeneratorStore } from '../stores/generator'
 import { generateImagesPost, regenerateImage as apiRegenerateImage, retryFailedImages as apiRetryFailed, createHistory, updateHistory, getImageUrl } from '../api'
@@ -158,6 +158,21 @@ async function maybeFinishAfterRetry() {
     }
   }, 1000)
 }
+
+// 兜底跳转 watcher：只要"没有失败图 + 全部 done"这个终态成立，就补一次跳转。
+// 这样即便 finish 事件那一瞬间 hasFailedImages 读到过时值、或者事件顺序错乱，
+// 只要后续状态收敛到全部 done，也能顺利跳到结果页；redirectTimer 去重防止多次触发。
+watch(
+  () => store.images.map(img => img.status).join(','),
+  () => {
+    if (isUnmounted) return
+    if (!store.taskId) return
+    if (redirectTimer.value !== null) return
+    if (store.images.length === 0) return
+    if (store.images.some(img => img.status !== 'done')) return
+    maybeFinishAfterRetry()
+  }
+)
 
 const isGenerating = computed(() => store.progress.status === 'generating')
 
@@ -278,6 +293,19 @@ async function retryAllFailed() {
 onMounted(async () => {
   if (store.outline.pages.length === 0) {
     router.push('/')
+    return
+  }
+
+  // 兜底：如果这批任务实际上已经生成完毕（用户在 /generate 上刷新、或者从历史里回到这一页），
+  // 直接把用户送到结果页，避免重复调用生成接口浪费额度。
+  const alreadyFinished =
+    store.stage === 'result' ||
+    (store.images.length > 0 &&
+      store.images.length === store.outline.pages.length &&
+      store.images.every(img => img.status === 'done'))
+
+  if (alreadyFinished && store.taskId) {
+    router.replace('/result')
     return
   }
 
