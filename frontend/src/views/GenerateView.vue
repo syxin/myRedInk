@@ -298,15 +298,25 @@ onMounted(async () => {
 
   // 兜底：如果这批任务实际上已经生成完毕（用户在 /generate 上刷新、或者从历史里回到这一页），
   // 直接把用户送到结果页，避免重复调用生成接口浪费额度。
-  const alreadyFinished =
-    store.stage === 'result' ||
-    (store.images.length > 0 &&
-      store.images.length === store.outline.pages.length &&
-      store.images.every(img => img.status === 'done'))
+  //
+  // 关键：区分"用户从大纲页主动发起新一轮生成"和"页面刷新/历史回访"。
+  // OutlineView 在点击"开始生成"时会写入一次性标记 redink:trigger-generate，
+  // 有标记 -> 这是主动发起，必须走生成流程（并清掉上一篇残留的完成态）；
+  // 无标记 + store 已是完成态 -> 说明是刷新或回访，直接跳结果页避免重复生成。
+  const triggeredByUser = sessionStorage.getItem('redink:trigger-generate') === '1'
+  sessionStorage.removeItem('redink:trigger-generate')
 
-  if (alreadyFinished && store.taskId) {
-    router.replace('/result')
-    return
+  if (!triggeredByUser) {
+    const alreadyFinished =
+      store.taskId &&
+      store.images.length > 0 &&
+      store.images.length === store.outline.pages.length &&
+      store.images.every(img => img.status === 'done')
+
+    if (alreadyFinished) {
+      router.replace('/result')
+      return
+    }
   }
 
   // 历史记录处理逻辑：

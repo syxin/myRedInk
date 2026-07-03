@@ -141,6 +141,9 @@ const startGeneration = async () => {
     saveTimer = null
     await autoSaveOutline()
   }
+  // 打一个一次性标记，告诉 /generate 这是"用户主动发起的新一轮生成"，
+  // 需要真正跑生成流程，而不是命中"已完成就跳结果页"的刷新兜底。
+  sessionStorage.setItem('redink:trigger-generate', '1')
   router.push('/generate')
 }
 
