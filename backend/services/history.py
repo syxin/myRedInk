@@ -8,11 +8,14 @@
 import os
 import json
 import uuid
+import logging
+import tempfile
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from enum import Enum
 
+logger = logging.getLogger(__name__)
 
 class RecordStatus:
     """历史记录状态常量"""
@@ -61,8 +64,12 @@ class HistoryService:
         try:
             with open(self.index_file, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            return {"records": []}
+        except json.JSONDecodeError as e:
+            logger.error(f"index.json 解析失败，尝试从记录文件恢复: {e}")
+            return self._rebuild_index_from_records()
+        except Exception as e:
+            logger.error(f"index.json 读取失败，尝试从记录文件恢复: {e}")
+            return self._rebuild_index_from_records()
 
     def _save_index(self, index: Dict) -> None:
         """
@@ -71,8 +78,64 @@ class HistoryService:
         Args:
             index: 索引数据
         """
-        with open(self.index_file, "w", encoding="utf-8") as f:
-            json.dump(index, f, ensure_ascii=False, indent=2)
+        # 安全检查：如果现有索引非空但新索引为空，拒绝覆盖（防止意外清空）
+        if not index.get("records"):
+            try:
+                with open(self.index_file, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+                if existing.get("records"):
+                    logger.warning("_save_index: 拒绝用空索引覆盖非空索引（现有 %d 条记录），已跳过" % len(existing["records"]))
+                    return
+            except Exception:
+                pass  # 现有文件不存在或无法读取，允许写入空索引
+
+        # 原子写入：先写临时文件，再 rename，避免写入过程中被中断导致文件损坏
+        dir_path = os.path.dirname(self.index_file)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(index, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, self.index_file)
+        except Exception:
+            # 写入失败时清理临时文件
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
+
+    def _rebuild_index_from_records(self) -> Dict:
+        """索引损坏时，从 history 目录下的记录文件重建索引"""
+        import glob
+        logger.warning("开始从记录文件重建 index.json ...")
+        records = []
+        for fpath in glob.glob(os.path.join(self.history_dir, "*.json")):
+            if os.path.basename(fpath) == "index.json":
+                continue
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    text = f.read()
+                # 兼容末尾有多余字符的损坏文件
+                decoder = json.JSONDecoder()
+                rec, _ = decoder.raw_decode(text)
+                page_count = len(rec.get("outline", {}).get("pages", []))
+                task_id = rec.get("images", {}).get("task_id") if rec.get("images") else None
+                records.append({
+                    "id": rec.get("id"),
+                    "title": rec.get("title", ""),
+                    "created_at": rec.get("created_at", ""),
+                    "updated_at": rec.get("updated_at", ""),
+                    "status": rec.get("status", "draft"),
+                    "thumbnail": rec.get("thumbnail"),
+                    "page_count": page_count,
+                    "task_id": task_id,
+                })
+            except Exception as e:
+                logger.warning(f"跳过无法解析的记录文件 {fpath}: {e}")
+        # 按创建时间倒序
+        records.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+        index = {"records": records}
+        self._save_index(index)
+        logger.info(f"索引重建完成，共恢复 {len(records)} 条记录")
+        return index
 
     def _get_record_path(self, record_id: str) -> str:
         """
@@ -262,6 +325,7 @@ class HistoryService:
 
         # 同步更新索引
         index = self._load_index()
+        found = False
         for idx_record in index["records"]:
             if idx_record["id"] == record_id:
                 idx_record["updated_at"] = now
@@ -282,9 +346,13 @@ class HistoryService:
                 if images is not None and images.get("task_id"):
                     idx_record["task_id"] = images.get("task_id")
 
+                found = True
                 break
 
-        self._save_index(index)
+        if found:
+            self._save_index(index)
+        else:
+            logger.warning(f"update_record: 记录 {record_id} 在索引中未找到，跳过索引写入")
         return True
 
     def delete_record(self, record_id: str) -> bool:

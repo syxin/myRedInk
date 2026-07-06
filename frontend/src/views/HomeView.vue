@@ -135,6 +135,9 @@ async function handleGenerate() {
     )
 
     if (result.success && result.pages) {
+      // 开始新的生成任务前，清空上一篇残留的状态（标题、文案、标签、图片等）
+      store.reset()
+
       // 设置主题和大纲到 store
       store.setTopic(topic.value.trim())
       store.setOutline(result.outline || '', result.pages)
