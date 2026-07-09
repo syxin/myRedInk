@@ -13,12 +13,58 @@ import os
 import json
 import base64
 import logging
+import queue
+import threading
 from flask import Blueprint, request, jsonify, Response, send_file
 from backend.services.image import get_image_service
 from .utils import log_request, log_error
 
 logger = logging.getLogger(__name__)
 
+
+def _stream_with_heartbeat(event_generator):
+    """将后端事件生成器包装为带心跳的 SSE 流。
+
+    在后台线程中迭代事件生成器，主线程每 15 秒发送 SSE 注释心跳，
+    防止 Cloudflare Tunnel / Nginx 等代理因连接空闲超时断开连接。
+    """
+    import time
+    event_queue = queue.Queue()
+    SENTINEL = object()
+
+    def _worker():
+        try:
+            for event in event_generator:
+                event_queue.put(event)
+        except Exception as e:
+            logger.error(f"SSE worker 异常: {e}")
+            event_queue.put({"event": "error", "data": {"message": str(e)}})
+        finally:
+            event_queue.put(SENTINEL)
+
+    worker_thread = threading.Thread(target=_worker, daemon=True)
+    worker_thread.start()
+
+    last_heartbeat = time.monotonic()
+    heartbeat_interval = 15  # 秒
+
+    while True:
+        try:
+            item = event_queue.get(timeout=1)
+        except queue.Empty:
+            now = time.monotonic()
+            if now - last_heartbeat >= heartbeat_interval:
+                yield ": heartbeat\n\n"
+                last_heartbeat = now
+            continue
+
+        if item is SENTINEL:
+            break
+
+        event_type = item["event"]
+        event_data = item["data"]
+        yield f"event: {event_type}\n"
+        yield f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
 
 def create_image_blueprint():
     """创建图片路由蓝图（工厂函数，支持多次调用）"""
@@ -80,8 +126,8 @@ def create_image_blueprint():
             image_service = get_image_service()
 
             def generate():
-                """SSE 事件生成器"""
-                for event in image_service.generate_images(
+                """SSE 事件生成器（带心跳）"""
+                gen = image_service.generate_images(
                     pages, task_id, full_outline,
                     user_images=user_images if user_images else None,
                     user_topic=user_topic,
@@ -89,13 +135,8 @@ def create_image_blueprint():
                     aspect_ratio=aspect_ratio,
                     image_size_base=image_size_base,
                     sequential_reference=sequential_reference
-                ):
-                    event_type = event["event"]
-                    event_data = event["data"]
-
-                    # 格式化为 SSE 格式
-                    yield f"event: {event_type}\n"
-                    yield f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                )
+                yield from _stream_with_heartbeat(gen)
 
             return Response(
                 generate(),
@@ -103,6 +144,7 @@ def create_image_blueprint():
                 headers={
                     'Cache-Control': 'no-cache',
                     'X-Accel-Buffering': 'no',
+                    'Connection': 'keep-alive',
                 }
             )
 
@@ -257,13 +299,9 @@ def create_image_blueprint():
             image_service = get_image_service()
 
             def generate():
-                """SSE 事件生成器"""
-                for event in image_service.retry_failed_images(task_id, pages):
-                    event_type = event["event"]
-                    event_data = event["data"]
-
-                    yield f"event: {event_type}\n"
-                    yield f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                """SSE 事件生成器（带心跳）"""
+                gen = image_service.retry_failed_images(task_id, pages)
+                yield from _stream_with_heartbeat(gen)
 
             return Response(
                 generate(),
@@ -271,6 +309,7 @@ def create_image_blueprint():
                 headers={
                     'Cache-Control': 'no-cache',
                     'X-Accel-Buffering': 'no',
+                    'Connection': 'keep-alive',
                 }
             )
 
