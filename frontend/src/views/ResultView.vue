@@ -91,6 +91,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGeneratorStore } from '../stores/generator'
+import { authImageUrl } from '../api/auth'
 import { regenerateImage } from '../api'
 import ContentDisplay from '../components/result/ContentDisplay.vue'
 
@@ -100,7 +101,7 @@ const regeneratingIndex = ref<number | null>(null)
 
 const viewImage = (url: string) => {
   const baseUrl = url.split('?')[0]
-  window.open(baseUrl + '?thumbnail=false', '_blank')
+  window.open(authImageUrl(baseUrl + '?thumbnail=false'), '_blank')
 }
 
 const startOver = () => {
@@ -112,7 +113,7 @@ const downloadOne = (image: any) => {
   if (image.url) {
     const link = document.createElement('a')
     const baseUrl = image.url.split('?')[0]
-    link.href = baseUrl + '?thumbnail=false'
+    link.href = authImageUrl(baseUrl + '?thumbnail=false')
     link.download = `rednote_page_${image.index + 1}.png`
     link.click()
   }
@@ -121,7 +122,7 @@ const downloadOne = (image: any) => {
 const downloadAll = () => {
   if (store.recordId) {
     const link = document.createElement('a')
-    link.href = `/api/history/${store.recordId}/download`
+    link.href = authImageUrl(`/api/history/${store.recordId}/download`)
     link.click()
   } else {
     store.images.forEach((image, index) => {
@@ -129,7 +130,7 @@ const downloadAll = () => {
         setTimeout(() => {
           const link = document.createElement('a')
           const baseUrl = image.url.split('?')[0]
-          link.href = baseUrl + '?thumbnail=false'
+          link.href = authImageUrl(baseUrl + '?thumbnail=false')
           link.download = `rednote_page_${image.index + 1}.png`
           link.click()
         }, index * 300)

@@ -81,6 +81,9 @@ def create_app():
         # 只拦截 /api/ 开头的请求
         if not path.startswith('/api/'):
             return
+        # CORS preflight（OPTIONS）直接放行，不带 token
+        if request.method == 'OPTIONS':
+            return
         # 认证未启用，放行
         if not is_auth_enabled():
             return

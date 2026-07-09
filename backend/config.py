@@ -9,12 +9,7 @@ class Config:
     DEBUG = True
     HOST = '0.0.0.0'
     PORT = 12398
-    CORS_ORIGINS = [
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-    ]
+    CORS_ORIGINS = "*"
     OUTPUT_DIR = 'output'
 
     _image_providers_config = None

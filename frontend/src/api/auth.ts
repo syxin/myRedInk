@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 认证工具模块
  *
  * 管理 token 的存取，提供 axios 拦截器和 fetch header 注入。
@@ -70,7 +70,20 @@ export function getAuthHeaders(extra: Record<string, string> = {}): Record<strin
   const headers: Record<string, string> = { ...extra }
   const token = getToken()
   if (token) {
-    headers['Authorization'] = Bearer 
+    headers['Authorization'] = `Bearer ${token}`
   }
   return headers
+}
+
+/**
+ * 给图片 URL 追加 token query 参数（用于 <img> 等无法设置 header 的场景）
+ * 如果 URL 已有 query 参数则追加 &token=xxx，否则加 ?token=xxx
+ * 如果没有 token 或 URL 已包含 token 参数，则原样返回
+ */
+export function authImageUrl(url: string): string {
+  const token = getToken()
+  if (!token) return url
+  if (url.includes('token=')) return url
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}token=${encodeURIComponent(token)}`
 }

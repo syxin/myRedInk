@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { getToken, clearToken, getAuthHeaders } from './auth'
+import { getToken, clearToken, getAuthHeaders, authImageUrl } from './auth'
 
 const API_BASE_URL = '/api'
 
@@ -104,7 +104,8 @@ export async function generateOutline(
 // thumbnail 参数：true=缩略图（默认），false=原图
 export function getImageUrl(taskId: string, filename: string, thumbnail: boolean = true): string {
   const thumbParam = thumbnail ? '?thumbnail=true' : '?thumbnail=false'
-  return `${API_BASE_URL}/images/${taskId}/${filename}${thumbParam}`
+  const url = `${API_BASE_URL}/images/${taskId}/${filename}${thumbParam}`
+  return authImageUrl(url)
 }
 
 // 重新生成图片（即使成功的也可以重新生成）

@@ -67,7 +67,7 @@
             :class="{ 'regenerating': regeneratingImages.has(idx) }"
           >
             <img
-              :src="`/api/images/${record.images.task_id}/${img}`"
+              :src="authImageUrl(`/api/images/${record.images.task_id}/${img}`)"
               loading="lazy"
               decoding="async"
             />
@@ -196,6 +196,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue'
+import { authImageUrl } from '../../api/auth'
 
 /**
  * 图片画廊模态框组件

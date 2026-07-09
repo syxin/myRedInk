@@ -122,6 +122,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { authImageUrl } from '../api/auth'
 import {
   getHistoryList,
   getHistoryStats,
@@ -233,7 +234,7 @@ async function loadRecord(id: string) {
         const filename = res.record!.images.generated[idx]
         return {
           index: idx,
-          url: filename ? `/api/images/${res.record!.images.task_id}/${filename}` : '',
+          url: filename ? authImageUrl(`/api/images/${res.record!.images.task_id}/${filename}`) : '',
           status: filename ? 'done' : 'error',
           retryable: !filename
         }
@@ -341,7 +342,7 @@ async function regenerateHistoryImage(index: number) {
 function downloadImage(filename: string, index: number) {
   if (!viewingRecord.value) return
   const link = document.createElement('a')
-  link.href = `/api/images/${viewingRecord.value.images.task_id}/${filename}?thumbnail=false`
+  link.href = authImageUrl(`/api/images/${viewingRecord.value.images.task_id}/${filename}?thumbnail=false`)
   link.download = `page_${index + 1}.png`
   link.click()
 }
@@ -352,7 +353,7 @@ function downloadImage(filename: string, index: number) {
 function downloadAllImages() {
   if (!viewingRecord.value) return
   const link = document.createElement('a')
-  link.href = `/api/history/${viewingRecord.value.id}/download`
+  link.href = authImageUrl(`/api/history/${viewingRecord.value.id}/download`)
   link.click()
 }
 

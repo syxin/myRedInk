@@ -15,6 +15,7 @@
  */
 import { defineStore } from 'pinia'
 import type { Page } from '../api'
+import { authImageUrl } from '../api/auth'
 
 /**
  * 生成的图片信息
@@ -331,7 +332,7 @@ export const useGeneratorStore = defineStore('generator', {
       const image = this.images.find(img => img.index === index)
       if (image) {
         image.status = status
-        if (url) image.url = url
+        if (url) image.url = authImageUrl(url)
         if (error) image.error = error
       }
       // 成功完成时增加计数
@@ -351,9 +352,9 @@ export const useGeneratorStore = defineStore('generator', {
         // 只有当这张图原本不是 done（即处于 error/retrying/generating）时，
         // 才需要把进度计数补上；否则用户「主动重新生成已成功图片」会重复计数。
         const wasDone = image.status === 'done'
-        // 添加时间戳避免缓存
+        // 添加时间戳避免缓存，并附带 token
         const timestamp = Date.now()
-        image.url = `${newUrl}?t=${timestamp}`
+        image.url = authImageUrl(`${newUrl}?t=${timestamp}`)
         image.status = 'done'
         delete image.error
         if (!wasDone) {

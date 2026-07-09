@@ -5,7 +5,7 @@
     <div class="card-cover" @click="$emit('preview', record.id)">
       <img
         v-if="record.thumbnail && record.task_id"
-        :src="`/api/images/${record.task_id}/${record.thumbnail}`"
+        :src="authImageUrl(`/api/images/${record.task_id}/${record.thumbnail}`)"
         alt="cover"
         loading="lazy"
         decoding="async"
@@ -53,6 +53,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { authImageUrl } from '../../api/auth'
 
 /**
  * 历史记录卡片组件
@@ -67,7 +68,7 @@ interface Record {
   title: string
   status: 'draft' | 'completed' | 'generating'
   page_count: number
-  updated_at: string
+  created_at: string
   thumbnail?: string
   task_id?: string
 }
@@ -100,7 +101,7 @@ const statusText = computed(() => {
  * 格式化日期
  */
 const formattedDate = computed(() => {
-  const d = new Date(props.record.updated_at)
+  const d = new Date(props.record.created_at)
   return `${d.getMonth() + 1}/${d.getDate()}`
 })
 </script>

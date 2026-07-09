@@ -105,10 +105,14 @@ def verify_token(token: str) -> bool:
 
 
 def extract_token() -> str | None:
-    """从请求中提取 token，优先 Authorization header，其次 cookie"""
+    """从请求中提取 token，优先级：Authorization header > query param > cookie"""
     auth_header = request.headers.get('Authorization', '')
     if auth_header.startswith('Bearer '):
         return auth_header[7:]
+    # query param: 用于 <img> 等无法设置 header 的场景
+    query_token = request.args.get('token')
+    if query_token:
+        return query_token
     return request.cookies.get('auth_token')
 
 
