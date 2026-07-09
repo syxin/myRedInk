@@ -177,4 +177,9 @@ async function handleLogin() {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* 移动端适配 */
+@media (max-width: 480px) {
+  .login-card { padding: 24px 20px; }
+}
 </style>

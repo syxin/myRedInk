@@ -272,19 +272,6 @@
           </div>
         </div>
 
-        <!-- 依次参考开关：仅当生成张数 == 上传参考图张数时可开启 -->
-        <div class="sequential-ref-control" :title="sequentialTooltip">
-          <label class="sequential-switch" :class="{ disabled: !canEnableSequential }">
-            <input
-              type="checkbox"
-              :checked="sequentialReference"
-              :disabled="!canEnableSequential || loading"
-              @change="onSequentialToggle"
-            />
-            <span class="switch-track"><span class="switch-thumb"></span></span>
-            <span class="switch-label">依次参考</span>
-          </label>
-        </div>
       </div>
       <div class="toolbar-right">
         <button
@@ -295,6 +282,20 @@
           <span v-if="loading" class="spinner-sm"></span>
           <span v-else>生成大纲</span>
         </button>
+      </div>
+
+      <!-- 依次参考开关：仅当生成张数 == 上传参考图张数时可开启 -->
+      <div class="sequential-ref-control" :title="sequentialTooltip">
+        <label class="sequential-switch" :class="{ disabled: !canEnableSequential }">
+          <input
+            type="checkbox"
+            :checked="sequentialReference"
+            :disabled="!canEnableSequential || loading"
+            @change="onSequentialToggle"
+          />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span class="switch-label">依次参考</span>
+        </label>
       </div>
     </div>
   </div>
@@ -914,6 +915,7 @@ defineExpose({
 
 .composer-textarea {
   flex: 1;
+  min-width: 0;
   border: none;
   outline: none;
   font-size: 16px;
@@ -1149,6 +1151,12 @@ defineExpose({
 @keyframes pageCountMenuIn {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* 移动端弹窗居中动画：保持 translate(-50%, -50%) 不被覆盖 */
+@keyframes mobileMenuIn {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
 }
 
 .menu-header {
@@ -1540,9 +1548,16 @@ defineExpose({
 
 /* ========== 依次参考开关 ========== */
 .sequential-ref-control {
-  display: inline-flex;
+  display: flex;
+  justify-content: flex-end;
   align-items: center;
-  margin-left: 4px;
+  margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .sequential-ref-control {
+    justify-content: flex-start;
+  }
 }
 
 .sequential-switch {
@@ -1620,4 +1635,138 @@ defineExpose({
 .sequential-switch.disabled .switch-track {
   background: #d9d9d9;
 }
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .composer-container {
+    padding: 12px;
+  }
+
+  /* 工具栏纵向：按钮一行，生成按钮单独一行 */
+  .composer-toolbar {
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .toolbar-left {
+    gap: 8px;
+    justify-content: flex-start;
+  }
+
+  .tool-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .page-count-btn,
+  .resolution-btn {
+    width: auto !important;
+    min-width: 0;
+    padding: 0 10px;
+    font-size: 12px;
+    height: 36px;
+    overflow: visible;
+    gap: 4px;
+  }
+
+  .page-count-btn svg,
+  .resolution-btn svg {
+    flex-shrink: 0;
+  }
+
+  .page-count-label,
+  .resolution-label {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: visible;
+  }
+
+  .generate-btn {
+    width: 100%;
+    justify-content: center;
+    height: 40px;
+  }
+
+  /* 弹出菜单：居中全屏遮罩，内容可滚动 */
+  .page-count-menu {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: auto;
+    max-width: calc(100vw - 32px);
+    max-height: 80vh;
+    overflow-y: auto;
+    z-index: 1000;
+    animation: mobileMenuIn 0.15s ease-out;
+  }
+
+  .resolution-menu {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: auto;
+    max-width: calc(100vw - 32px);
+    max-height: 80vh;
+    overflow-y: auto;
+    z-index: 1000;
+    animation: mobileMenuIn 0.15s ease-out;
+  }
+
+  .quick-options {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .ratio-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  /* 依次参考按钮缩小 */
+  .sequential-switch {
+    height: 36px;
+    padding: 0 8px;
+    gap: 4px;
+  }
+
+  .switch-track {
+    width: 26px;
+    height: 14px;
+  }
+
+  .switch-thumb {
+    width: 10px;
+    height: 10px;
+  }
+
+  .sequential-switch input:checked + .switch-track .switch-thumb {
+    transform: translateX(12px);
+  }
+
+  .switch-label {
+    font-size: 12px;
+  }
+
+  /* placeholder 不溢出 */
+  .composer-textarea {
+    font-size: 16px;
+    min-width: 0;
+  }
+
+  .composer-textarea::placeholder {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .quick-options {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .ratio-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 </style>

@@ -1,0 +1,243 @@
+/* 桌面端隐藏移动端导航栏 */
+.mobile-nav {
+  display: none;
+}
+
+/* ============================================
+   移动端适配样式 Responsive CSS
+   覆盖平板 (1024px)、手机 (768px)、小手机 (480px)
+   ============================================ */
+
+/* ============================================
+   平板适配 (max-width: 1024px)
+   ============================================ */
+@media (max-width: 1024px) {
+  .layout-main {
+    padding: 32px 24px;
+  }
+
+  .page-title {
+    font-size: 28px;
+  }
+
+  .page-subtitle {
+    font-size: 15px;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gallery-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+
+  .stats-overview {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .modal-body {
+    max-width: 95vw;
+  }
+}
+
+/* ============================================
+   手机适配 (max-width: 768px)
+   ============================================ */
+@media (max-width: 768px) {
+  /* 侧边栏隐藏，改用底部导航栏 */
+  .layout-sidebar {
+    display: none;
+  }
+
+  /* 底部导航栏 */
+  .mobile-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 60px;
+    background: var(--bg-sidebar);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    z-index: 100;
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.06);
+  }
+
+  .mobile-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    text-decoration: none;
+    color: var(--text-secondary);
+    transition: color 0.2s ease;
+  }
+
+  .mobile-nav-item svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .mobile-nav-item span {
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .mobile-nav-item.active {
+    color: var(--primary);
+  }
+
+  /* 主内容区：去掉左侧边距，留出底部导航空间 */
+  .layout-main {
+    margin-left: 0;
+    padding: 16px;
+    padding-bottom: 80px;
+  }
+
+  .container {
+    max-width: 100%;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+  .page-title {
+    font-size: 24px;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .grid-cols-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .grid-cols-4 {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .gallery-grid {
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
+  }
+
+  .stats-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .scenarios-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .composer-container {
+    max-width: none;
+    padding: 14px;
+  }
+
+  .toolbar-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-mini {
+    width: 100%;
+    margin-bottom: 12px;
+  }
+
+  .modal-fullscreen {
+    padding: 0;
+  }
+
+  .modal-body {
+    height: 100vh;
+    border-radius: 0;
+  }
+
+  .modal-gallery-grid {
+    grid-template-columns: repeat(2, minmax(130px, 1fr));
+  }
+
+  .image-card {
+    min-height: 200px;
+  }
+
+  .global-footer {
+    margin-top: 40px;
+  }
+
+  .recent-item {
+    padding: 12px;
+  }
+
+  .tabs-container {
+    gap: 16px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .stat-box {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .stat-content .number {
+    font-size: 22px;
+  }
+
+  .page-subtitle {
+    font-size: 14px;
+  }
+
+  .btn {
+    font-size: 14px;
+    padding: 10px 20px;
+  }
+
+  .pagination-wrapper {
+    gap: 8px;
+  }
+
+  .card-footer {
+    padding: 12px;
+  }
+}
+
+/* ============================================
+   小手机适配 (max-width: 480px)
+   ============================================ */
+@media (max-width: 480px) {
+  .grid-cols-4 {
+    grid-template-columns: 1fr;
+  }
+
+  .gallery-grid {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+
+  .scenarios-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .page-title {
+    font-size: 20px;
+  }
+
+  .composer-toolbar {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .generate-btn {
+    width: 100%;
+  }
+
+  .modal-gallery-grid {
+    grid-template-columns: 1fr;
+  }
+}

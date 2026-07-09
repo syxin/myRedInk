@@ -330,4 +330,9 @@ async function handleGenerate() {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .error-toast { bottom: 80px; }
+}
 </style>

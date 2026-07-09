@@ -514,4 +514,11 @@ onMounted(async () => {
   margin-top: 10px;
   color: var(--text-placeholder);
 }
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .stats-overview { grid-template-columns: 1fr; }
+  .toolbar-wrapper { flex-direction: column; align-items: stretch; }
+  .search-mini { width: 100%; }
+}
 </style>

@@ -211,4 +211,10 @@ onMounted(() => {
   padding: 80px 20px;
   color: #666;
 }
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .settings-container { max-width: 100%; }
+  .section-header { flex-direction: column; gap: 8px; }
+}
 </style>

@@ -85,6 +85,12 @@
 .image-card:hover img {
   transform: scale(1.05);
 }
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .result-grid { grid-template-columns: 1fr; }
+  .result-actions { flex-direction: column; gap: 12px; }
+}
 </style>
 
 <script setup lang="ts">

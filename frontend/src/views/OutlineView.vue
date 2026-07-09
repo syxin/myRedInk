@@ -465,4 +465,13 @@ watch(
   font-weight: 300;
   margin-bottom: 8px;
 }
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .outline-grid { grid-template-columns: 1fr; max-width: 100%; padding: 0; gap: 16px; }
+  .outline-card { min-height: 200px; }
+}
+@media (max-width: 480px) {
+  .outline-grid { grid-template-columns: 1fr; }
+}
 </style>
