@@ -1,6 +1,31 @@
 import axios from 'axios'
+import { getToken, clearToken, getAuthHeaders } from './auth'
 
 const API_BASE_URL = '/api'
+
+// axios 请求拦截器：自动带 token
+axios.interceptors.request.use((config) => {
+  const token = getToken()
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// axios 响应拦截器：401 时清除 token 并跳转登录页
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      clearToken()
+      // 避免在登录页重复跳转
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname)
+      }
+    }
+    return Promise.reject(error)
+  }
+)
 
 export interface Page {
   index: number
@@ -121,9 +146,7 @@ export async function retryFailedImages(
   try {
     const response = await fetch(`${API_BASE_URL}/retry-failed`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         task_id: taskId,
         pages
@@ -131,6 +154,12 @@ export async function retryFailedImages(
     })
 
     if (!response.ok) {
+      if (response.status === 401) {
+        clearToken()
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname)
+        }
+      }
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 
@@ -678,9 +707,7 @@ export async function generateImagesPost(
 
     const response = await fetch(`${API_BASE_URL}/generate`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         pages,
         task_id: taskId,
@@ -695,6 +722,12 @@ export async function generateImagesPost(
     })
 
     if (!response.ok) {
+      if (response.status === 401) {
+        clearToken()
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname)
+        }
+      }
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 

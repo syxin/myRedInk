@@ -5,6 +5,7 @@ from flask import Flask, send_from_directory
 from flask_cors import CORS
 from backend.config import Config
 from backend.routes import register_routes
+from backend.auth import is_auth_enabled, verify_token, extract_token
 
 
 def setup_logging():
@@ -59,12 +60,37 @@ def create_app():
         r"/api/*": {
             "origins": Config.CORS_ORIGINS,
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type"],
+            "allow_headers": ["Content-Type", "Authorization"],
         }
     })
 
     # 注册所有 API 路由
     register_routes(app)
+
+    # 认证拦截：所有 /api/ 请求（白名单除外）需要携带有效 token
+    _AUTH_WHITELIST = {
+        '/api/auth/login',
+        '/api/auth/status',
+        '/api/health',
+    }
+
+    @app.before_request
+    def _check_auth():
+        from flask import request, jsonify
+        path = request.path
+        # 只拦截 /api/ 开头的请求
+        if not path.startswith('/api/'):
+            return
+        # 认证未启用，放行
+        if not is_auth_enabled():
+            return
+        # 白名单放行
+        if path in _AUTH_WHITELIST:
+            return
+        # 校验 token
+        token = extract_token()
+        if not token or not verify_token(token):
+            return jsonify({"success": False, "error": "未授权访问"}), 401
 
     # 启动时验证配置
     _validate_config_on_startup(logger)

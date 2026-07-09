@@ -79,3 +79,6 @@ debug_*.py
 DEV_NOTES.md
 commit_message.txt
 git-changelog.txt
+
+# Auth config
+/auth.yaml

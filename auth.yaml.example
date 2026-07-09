@@ -1,0 +1,8 @@
+﻿# 访问密码配置
+# 复制本文件为 auth.yaml 并修改密码
+
+# 登录密码（必填）
+password: "your-secret-password"
+
+# token 过期时间（秒），默认 7 天
+token_expire: 604800
