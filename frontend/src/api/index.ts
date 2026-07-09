@@ -179,13 +179,13 @@ export async function retryFailedImages(
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n\n')
+        const lines = buffer.split(/\r?\n\r?\n/)
         buffer = lines.pop() || ''
 
         for (const line of lines) {
           if (!line.trim()) continue
 
-          const [eventLine, dataLine] = line.split('\n')
+          const [eventLine, dataLine] = line.split(/\r?\n/)
           if (!eventLine || !dataLine) continue
 
           const eventType = eventLine.replace('event: ', '').trim()
@@ -747,13 +747,13 @@ export async function generateImagesPost(
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n\n')
+        const lines = buffer.split(/\r?\n\r?\n/)
         buffer = lines.pop() || ''
 
         for (const line of lines) {
           if (!line.trim()) continue
 
-          const [eventLine, dataLine] = line.split('\n')
+          const [eventLine, dataLine] = line.split(/\r?\n/)
           if (!eventLine || !dataLine) continue
 
           const eventType = eventLine.replace('event: ', '').trim()

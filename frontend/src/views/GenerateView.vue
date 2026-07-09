@@ -364,6 +364,10 @@ onMounted(async () => {
     // onComplete
     (event) => {
       console.log('Complete:', event)
+      if (event.image_url && !store.taskId) {
+        const match = event.image_url.match(/\/api\/images\/([^/]+)\//)
+        if (match) store.taskId = match[1]
+      }
       if (event.image_url) {
         store.updateProgress(event.index, 'done', event.image_url)
       }
@@ -420,6 +424,15 @@ onMounted(async () => {
     (err) => {
       console.error('Stream Error:', err)
       error.value = '生成失败: ' + err.message
+      store.images.forEach(img => {
+        if (img.status === 'generating') {
+          img.status = 'error'
+          img.error = '连接中断'
+        }
+      })
+      if (store.taskId) {
+        store.progress.status = 'done'
+      }
     },
     // userImages - 用户上传的参考图片
     store.userImages.length > 0 ? store.userImages : undefined,
