@@ -301,7 +301,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 /**
  * 主题输入组合框组件
@@ -349,10 +349,10 @@ const uploadedImages = ref<UploadedImage[]>([])
 const pageCountRef = ref<HTMLElement | null>(null)
 const showPageCountMenu = ref(false)
 // 当前生效的张数（若为 null 则使用默认）
-const pageCount = ref(8)
-const pageCountActive = ref(false)
+const pageCount = ref(2)
+const pageCountActive = ref(true)
 // 快捷按钮选项
-const quickOptions = [3, 6, 8, 12, 15, 18]
+const quickOptions = [2, 3, 6, 8, 12, 15, 18]
 
 // ========== 依次参考开关 ==========
 // 仅当用户主动设置了张数、且张数 == 上传参考图张数时可开启
@@ -414,7 +414,7 @@ function togglePageCountMenu() {
   if (showPageCountMenu.value) {
     // 首次展开时若无有效值，回退到默认 8
     if (!pageCount.value || pageCount.value < 1) {
-      pageCount.value = 8
+      pageCount.value = 2
     }
   }
 }
@@ -432,7 +432,7 @@ function applyPageCount(count: number) {
 
 function clearPageCount() {
   pageCountActive.value = false
-  pageCount.value = 8
+  pageCount.value = 2
   emit('pageCountChange', null)
   ensureSequentialConsistency()
 }
@@ -515,7 +515,7 @@ const customWidth = ref(2400)
 const customHeight = ref(3200)
 
 // 用户是否显式设置过（非默认）
-const resolutionActive = ref(false)
+const resolutionActive = ref(true)
 
 const resolutionTabs = [
   { id: 'auto' as ResolutionMode, label: '自动' },
@@ -669,6 +669,19 @@ function confirmResolution() {
 /**
  * 处理输入变化
  */
+// 组件挂载时，发射默认值（张数 2、分辨率 4K 3:4）
+onMounted(() => {
+  emit('pageCountChange', 2)
+  const dims = computeRatioDimensions('4K', '3:4')
+  if (dims) {
+    emit('resolutionChange', {
+      size: `${dims.width}x${dims.height}`,
+      image_size: '4K',
+      aspect_ratio: '3:4',
+    })
+  }
+})
+
 function handleInput(event: Event) {
   const target = event.target as HTMLTextAreaElement
   emit('update:modelValue', target.value)
