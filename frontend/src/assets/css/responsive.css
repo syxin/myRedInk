@@ -93,7 +93,7 @@
   /* 主内容区：去掉左侧边距，留出底部导航空间 */
   .layout-main {
     margin-left: 0;
-    padding: 16px;
+    padding: 12px;
     padding-bottom: 80px;
   }
 
@@ -137,7 +137,7 @@
 
   .composer-container {
     max-width: none;
-    padding: 14px;
+    padding: 10px;
   }
 
   .toolbar-wrapper {

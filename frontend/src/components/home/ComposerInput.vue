@@ -272,6 +272,19 @@
           </div>
         </div>
 
+        <!-- 依次参考开关：仅当生成张数 == 上传参考图张数时可开启 -->
+        <div class="sequential-ref-control" :title="sequentialTooltip">
+          <label class="sequential-switch" :class="{ disabled: !canEnableSequential }">
+            <input
+              type="checkbox"
+              :checked="sequentialReference"
+              :disabled="!canEnableSequential || loading"
+              @change="onSequentialToggle"
+            />
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span class="switch-label">依次参考</span>
+          </label>
+        </div>
       </div>
       <div class="toolbar-right">
         <button
@@ -282,20 +295,6 @@
           <span v-if="loading" class="spinner-sm"></span>
           <span v-else>生成大纲</span>
         </button>
-      </div>
-
-      <!-- 依次参考开关：仅当生成张数 == 上传参考图张数时可开启 -->
-      <div class="sequential-ref-control" :title="sequentialTooltip">
-        <label class="sequential-switch" :class="{ disabled: !canEnableSequential }">
-          <input
-            type="checkbox"
-            :checked="sequentialReference"
-            :disabled="!canEnableSequential || loading"
-            @change="onSequentialToggle"
-          />
-          <span class="switch-track"><span class="switch-thumb"></span></span>
-          <span class="switch-label">依次参考</span>
-        </label>
       </div>
     </div>
   </div>
@@ -1548,15 +1547,19 @@ defineExpose({
 
 /* ========== 依次参考开关 ========== */
 .sequential-ref-control {
-  display: flex;
-  justify-content: flex-end;
+  display: inline-flex;
   align-items: center;
-  margin-top: 4px;
+  margin-left: 4px;
 }
 
 @media (max-width: 768px) {
+  .toolbar-left {
+    flex-wrap: wrap;
+  }
   .sequential-ref-control {
-    justify-content: flex-start;
+    flex-basis: 100%;
+    margin-left: 0;
+    margin-top: 4px;
   }
 }
 
