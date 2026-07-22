@@ -1,4 +1,5 @@
 """Image API 图片生成器"""
+import hashlib
 import logging
 import base64
 import json
@@ -10,6 +11,22 @@ from ..utils.image_compressor import compress_image
 from ..utils.size_helper import compute_pixel_size
 
 logger = logging.getLogger(__name__)
+
+
+def _prompt_digest(prompt: Any) -> str:
+    """生成 prompt 的短摘要：长度 + md5 前 12 位，用于日志对比，避免泄漏完整内容。"""
+    if not prompt:
+        return "None"
+    if isinstance(prompt, str):
+        return f"{len(prompt)}c:{hashlib.md5(prompt.encode('utf-8')).hexdigest()[:12]}"
+    # 多模态 content（list）：取第一段 text 的摘要
+    if isinstance(prompt, list):
+        for part in prompt:
+            if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+                txt = part["text"]
+                return f"list[{len(prompt)}]:{len(txt)}c:{hashlib.md5(txt.encode('utf-8')).hexdigest()[:12]}"
+        return f"list[{len(prompt)}]:no-text"
+    return f"{type(prompt).__name__}:?"
 
 
 class ImageApiGenerator(ImageGeneratorBase):
@@ -186,6 +203,13 @@ class ImageApiGenerator(ImageGeneratorBase):
         api_url = f"{self.base_url}{self.endpoint_type}"
         logger.debug(f"  Image API POST {api_url}, 字段={list(payload.keys())}")
 
+        # 诊断日志：记录最终发送给生图接口的 prompt 摘要，用于排查并发下 prompt 串号
+        logger.info(
+            f"[img_api_send] images_endpoint | final_prompt_digest={_prompt_digest(payload.get('prompt'))} | "
+            f"ref_images_count={len(payload.get('image', []))} | size={payload.get('size')} | "
+            f"prompt_text_first60={str(payload.get('prompt', ''))[:60]!r}"
+        )
+
         # 显式以 UTF-8 + ensure_ascii=False 序列化，避免 requests 默认把中文转 \uXXXX
         # 这样既减小 body 体积，也能绕开个别中转站对超长 \u 转义解析的兼容性问题
         body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -322,6 +346,15 @@ class ImageApiGenerator(ImageGeneratorBase):
 
         api_url = f"{self.base_url}{self.endpoint_type}"
         logger.debug(f"  Image API chat POST {api_url}, 字段={list(payload.keys())}")
+
+        # 诊断日志：记录最终发送给生图接口的 prompt 摘要，用于排查并发下 prompt 串号
+        # messages[0].content 可能是 str 或 list（多模态）
+        _msg_content = payload["messages"][0]["content"]
+        logger.info(
+            f"[img_api_send] chat_endpoint | final_prompt_digest={_prompt_digest(_msg_content)} | "
+            f"ref_images_count={len(all_reference_images)} | size={payload.get('size')} | "
+            f"prompt_text_first60={(_msg_content if isinstance(_msg_content, str) else (next((p['text'] for p in _msg_content if isinstance(p, dict) and p.get('type')=='text'), '')))[:60]!r}"
+        )
 
         response = requests.post(api_url, headers=headers, json=payload, timeout=900)
 

@@ -13,6 +13,7 @@ import os
 import io
 import zipfile
 import logging
+from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file
 from backend.services.history import get_history_service
 
@@ -457,10 +458,18 @@ def create_history_blueprint():
             # 创建内存中的 ZIP 文件
             zip_buffer = _create_images_zip(task_dir)
 
-            # 生成安全的下载文件名
+            # 生成安全的下载文件名：主题截断到 15 字符 + 时间戳 MMDD-HHMM，避免文件名过长且防止重复下载撞名
             title = record.get('title', 'images')
-            safe_title = _sanitize_filename(title)
-            filename = f"{safe_title}.zip"
+            safe_title = _sanitize_filename(title, max_length=15)
+            timestamp = ''
+            created_at = record.get('created_at', '')
+            if created_at:
+                try:
+                    dt = datetime.fromisoformat(created_at)
+                    timestamp = dt.strftime('%m%d-%H%M')
+                except (ValueError, TypeError):
+                    timestamp = ''
+            filename = f"{safe_title}_{timestamp}.zip" if timestamp else f"{safe_title}.zip"
 
             return send_file(
                 zip_buffer,
@@ -515,20 +524,29 @@ def _create_images_zip(task_dir: str) -> io.BytesIO:
     return memory_file
 
 
-def _sanitize_filename(title: str) -> str:
+def _sanitize_filename(title: str, max_length: int = 0) -> str:
     """
-    清理文件名中的非法字符
+    清理文件名中的非法字符并可选截断长度
 
     Args:
         title: 原始标题
+        max_length: 最大字符数（按 Unicode 字符计），0 表示不截断
 
     Returns:
         str: 安全的文件名
     """
-    # 只保留字母、数字、空格、连字符和下划线
+    # 保留字母、数字、空格、连字符、下划线、CJK 汉字
+    # 注意：'\u4e00' <= c <= '\u9fff' 才是范围判断；原写法 c in '\u4e00-\u9fff' 只是字符串成员判断（只匹配 3 个字符）
     safe_title = "".join(
         c for c in title
-        if c.isalnum() or c in (' ', '-', '_', '\u4e00-\u9fff')
+        if c.isalnum() or c in (' ', '-', '_') or '\u4e00' <= c <= '\u9fff'
     ).strip()
+
+    # 去除结尾的点号（Windows 不允许文件名以 . 结尾）
+    safe_title = safe_title.rstrip('.')
+
+    # 长度截断（按字符数，避免超长文件名触发 Windows 255 字符路径上限）
+    if max_length > 0 and len(safe_title) > max_length:
+        safe_title = safe_title[:max_length].rstrip()
 
     return safe_title if safe_title else 'images'

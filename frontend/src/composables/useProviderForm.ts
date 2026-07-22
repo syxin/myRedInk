@@ -20,6 +20,7 @@ export interface Provider {
   api_key_masked?: string
   endpoint_type?: string
   high_concurrency?: boolean
+  high_concurrency_interval?: number
   short_prompt?: boolean
 }
 
@@ -50,6 +51,7 @@ export interface ImageProviderForm {
   base_url: string
   model: string
   high_concurrency: boolean
+  high_concurrency_interval: number
   short_prompt: boolean
   endpoint_type: string
   _has_api_key: boolean
@@ -126,6 +128,7 @@ export function useProviderForm() {
       base_url: '',
       model: '',
       high_concurrency: false,
+      high_concurrency_interval: 0,
       short_prompt: false,
       endpoint_type: '/v1/images/generations',
       _has_api_key: false
@@ -362,6 +365,7 @@ export function useProviderForm() {
       base_url: provider.base_url || '',
       model: provider.model || '',
       high_concurrency: provider.high_concurrency || false,
+      high_concurrency_interval: provider.high_concurrency_interval ?? 0,
       short_prompt: provider.short_prompt || false,
       endpoint_type: provider.endpoint_type || '/v1/images/generations',
       _has_api_key: !!provider.api_key_masked
@@ -405,6 +409,7 @@ export function useProviderForm() {
       type: imageForm.value.type,
       model: imageForm.value.model,
       high_concurrency: imageForm.value.high_concurrency,
+      high_concurrency_interval: imageForm.value.high_concurrency_interval ?? 0,
       short_prompt: imageForm.value.short_prompt
     }
 

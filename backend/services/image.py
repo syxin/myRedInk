@@ -1,5 +1,7 @@
 """图片生成服务"""
+import hashlib
 import logging
+import logging.handlers
 import os
 import uuid
 import time
@@ -10,6 +12,38 @@ from backend.config import Config
 from backend.generators.factory import ImageGeneratorFactory
 from backend.utils.image_compressor import compress_image
 from backend.utils.size_helper import compute_pixel_size
+
+
+# ---------------------------------------------------------------------------
+# 参考图诊断日志：独立文件，用于排查「多张图长得一样/参考图错位」类问题
+# 写到项目根目录的 logs/image_ref_debug.log，应用重启后保留。
+# ---------------------------------------------------------------------------
+_REF_LOG_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "logs", "image_ref_debug.log"
+)
+os.makedirs(os.path.dirname(_REF_LOG_PATH), exist_ok=True)
+ref_logger = logging.getLogger("image_ref_debug")
+ref_logger.setLevel(logging.DEBUG)
+ref_logger.propagate = False  # 不冒泡到 root，避免重复打印到控制台
+if not ref_logger.handlers:
+    _ref_fh = logging.handlers.RotatingFileHandler(
+        _REF_LOG_PATH, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    _ref_fh.setFormatter(logging.Formatter(
+        "%(asctime)s | %(levelname)-7s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+    ref_logger.addHandler(_ref_fh)
+
+
+def _img_fingerprint(img: Optional[bytes]) -> str:
+    """生成参考图指纹：长度 + 内容前 16 字节的 md5，用于日志对比，不泄漏图片内容。"""
+    if not img:
+        return "None"
+    if isinstance(img, (list, tuple)):
+        return f"[list:{len(img)}]"
+    # 用完整内容的 md5 区分图片（前16字节对 PNG 都一样，无法区分）
+    return f"{len(img)}b:{hashlib.md5(img).hexdigest()[:12]}"
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +183,15 @@ class ImageService:
         page_type = page["type"]
         page_content = page["content"]
 
+        # 参考图诊断：记录本页实际收到的参考图指纹，用于排查「两张图收到相同/错位参考图」
+        _ref_imgs_fp = [_img_fingerprint(img) for img in user_images] if user_images else []
+        ref_logger.info(
+            f"[gen_single] task={task_id} page_index={index} type={page_type} | "
+            f"reference_image={_img_fingerprint(reference_image)} | "
+            f"user_images=[{', '.join(_ref_imgs_fp)}] (count={len(_ref_imgs_fp)}) | "
+            f"page_content_preview={page_content[:40]!r}"
+        )
+
         try:
             logger.debug(f"生成图片 [{index}]: type={page_type}")
 
@@ -226,6 +269,14 @@ class ImageService:
 
             # 保存图片（使用当前任务目录）
             filename = f"{index}.png"
+            # 诊断日志：记录生成结果数据指纹 + 即将保存的文件名，确认 index 与数据对应
+            _data_fp = _img_fingerprint(image_data)
+            ref_logger.info(
+                f"[gen_single_save] task={task_id} page_index={index} | "
+                f"filename={filename} | image_data_fp={_data_fp} | "
+                f"current_task_dir={self.current_task_dir} | "
+                f"prompt_digest_used=(见 [img_api_send] 日志)"
+            )
             self._save_image(image_data, filename, self.current_task_dir)
             logger.info(f"✅ 图片 [{index}] 生成成功: {filename}")
 
@@ -300,6 +351,16 @@ class ImageService:
         if seq_ref_enabled:
             logger.info(f"✅ 「依次参考」已启用：{total} 页 与 {len(compressed_user_images)} 张参考图一一对应")
 
+        # 参考图诊断总览：记录本次批量生成的关键参数与每张参考图指纹
+        _compressed_fp = [_img_fingerprint(img) for img in compressed_user_images] if compressed_user_images else []
+        ref_logger.info(
+            f"[batch_start] task={task_id} total_pages={total} | "
+            f"sequential_reference(req)={sequential_reference} seq_ref_enabled={seq_ref_enabled} | "
+            f"compressed_user_images=[{', '.join(_compressed_fp)}] (count={len(_compressed_fp)}) | "
+            f"high_concurrency={self.provider_config.get('high_concurrency', False)} | "
+            f"provider={self.provider_config.get('type')}"
+        )
+
         # 初始化任务状态
         self._task_states[task_id] = {
             "pages": pages,
@@ -332,6 +393,12 @@ class ImageService:
                 cover_page = pages[0]
 
             high_concurrency = self.provider_config.get('high_concurrency', False)
+            # 高并发模式下的请求间隔秒数（0 表示不间隔）；用于规避某些 API 在高并发下返回相同结果
+            request_interval = self.provider_config.get('high_concurrency_interval', 0) or 0
+            try:
+                request_interval = max(0, int(request_interval))
+            except (TypeError, ValueError):
+                request_interval = 0
 
             if high_concurrency:
                 yield {
@@ -347,11 +414,24 @@ class ImageService:
 
                 with ThreadPoolExecutor(max_workers=self.MAX_CONCURRENT) as executor:
                     future_to_page = {}
-                    for page in pages:
+                    for _idx, page in enumerate(pages):
+                        # 高并发限速：从第 2 个任务起，每次提交前等待 N 秒（0 表示不间隔）
+                        if _idx > 0 and request_interval > 0:
+                            logger.info(
+                                f"  ⏳ 高并发限速: 间隔 {request_interval}s 后提交下一页 (page_index={page['index']})"
+                            )
+                            time.sleep(request_interval)
                         if seq_ref_enabled:
                             per_page_user_images = [compressed_user_images[page["index"]]]
                         else:
                             per_page_user_images = compressed_user_images
+                        # 参考图诊断：记录并发分支每页分配到的参考图指纹
+                        _per_fp = [_img_fingerprint(img) for img in per_page_user_images] if per_page_user_images else []
+                        ref_logger.info(
+                            f"[batch_concurrent] task={task_id} page_index={page['index']} type={page.get('type')} | "
+                            f"assigned_ref=[{', '.join(_per_fp)}] (count={len(_per_fp)}) | "
+                            f"seq_ref_enabled={seq_ref_enabled}"
+                        )
                         future_to_page[executor.submit(
                             self._generate_single_image,
                             page, task_id, None, 0,
@@ -434,6 +514,13 @@ class ImageService:
                         per_page_user_images = [compressed_user_images[page["index"]]]
                     else:
                         per_page_user_images = compressed_user_images
+                    # 参考图诊断：记录顺序分支每页分配到的参考图指纹
+                    _per_fp = [_img_fingerprint(img) for img in per_page_user_images] if per_page_user_images else []
+                    ref_logger.info(
+                        f"[batch_sequential] task={task_id} page_index={page['index']} type={page.get('type')} | "
+                        f"assigned_ref=[{', '.join(_per_fp)}] (count={len(_per_fp)}) | "
+                        f"seq_ref_enabled={seq_ref_enabled}"
+                    )
                     index, success, filename, error = self._generate_single_image(
                         page, task_id, None, 0, full_outline,
                         per_page_user_images, user_topic,
@@ -497,6 +584,11 @@ class ImageService:
                     image_size=image_size, aspect_ratio=aspect_ratio,
                     image_size_base=image_size_base
                 )
+                # 参考图诊断：封面优先模式下的封面生成结果（封面是后续所有内容页的参考图来源）
+                ref_logger.info(
+                    f"[cover_first_cover] task={task_id} page_index={cover_page['index']} | "
+                    f"success={success} filename={filename}"
+                )
                 if success:
                     generated_images.append(filename)
                     self._task_states[task_id]["generated"][index] = filename
@@ -505,6 +597,11 @@ class ImageService:
                         cover_image_data = f.read()
                     cover_image_data = compress_image(cover_image_data, max_size_kb=200)
                     self._task_states[task_id]["cover_image"] = cover_image_data
+                    # 参考图诊断：封面已生成，后续所有内容页都将以此为参考图
+                    ref_logger.info(
+                        f"[cover_first_cover_saved] task={task_id} | "
+                        f"cover_image_data={_img_fingerprint(cover_image_data)} (will be used by all content pages)"
+                    )
                     yield {
                         "event": "complete",
                         "data": {
@@ -530,6 +627,13 @@ class ImageService:
 
             if other_pages:
                 high_concurrency = self.provider_config.get('high_concurrency', False)
+                # 高并发模式下的请求间隔秒数（0 表示不间隔）
+                request_interval = self.provider_config.get('high_concurrency_interval', 0) or 0
+                try:
+                    request_interval = max(0, int(request_interval))
+                except (TypeError, ValueError):
+                    request_interval = 0
+
                 if high_concurrency:
                     yield {
                         "event": "progress",
@@ -542,15 +646,29 @@ class ImageService:
                         }
                     }
                     with ThreadPoolExecutor(max_workers=self.MAX_CONCURRENT) as executor:
-                        future_to_page = {
-                            executor.submit(
+                        # 重构为显式 for 循环，以便在每次提交之间注入限速 sleep
+                        future_to_page = {}
+                        for _idx, page in enumerate(other_pages):
+                            # 高并发限速：从第 2 个任务起，每次提交前等待 N 秒
+                            if _idx > 0 and request_interval > 0:
+                                logger.info(
+                                    f"  ⏳ 高并发限速: 间隔 {request_interval}s 后提交下一页 (page_index={page['index']})"
+                                )
+                                time.sleep(request_interval)
+                            future_to_page[executor.submit(
                                 self._generate_single_image,
                                 page, task_id, cover_image_data, 0,
                                 full_outline, None, user_topic,
                                 image_size, aspect_ratio, image_size_base
-                            ): page
-                            for page in other_pages
-                        }
+                            )] = page
+                        # 参考图诊断：封面优先模式下，内容页全部使用同一张封面图作为参考
+                        ref_logger.info(
+                            f"[cover_first_content_concurrent] task={task_id} | "
+                            f"content_pages={[p['index'] for p in other_pages]} | "
+                            f"shared_cover_ref={_img_fingerprint(cover_image_data)} | "
+                            f"cover_failed={cover_image_data is None} | "
+                            f"request_interval={request_interval}s"
+                        )
                         for page in other_pages:
                             yield {
                                 "event": "progress",
@@ -621,6 +739,11 @@ class ImageService:
                             page, task_id, cover_image_data, 0,
                             full_outline, None, user_topic,
                             image_size, aspect_ratio, image_size_base
+                        )
+                        # 参考图诊断：封面优先顺序模式下，每页使用同一张封面图作为参考
+                        ref_logger.info(
+                            f"[cover_first_content_sequential] task={task_id} page_index={page['index']} | "
+                            f"used_cover_ref={_img_fingerprint(cover_image_data)}"
                         )
                         if success:
                             generated_images.append(filename)
@@ -718,11 +841,26 @@ class ImageService:
         # 显式传入的开关值覆盖任务状态；再次校验条件
         if sequential_reference is not None:
             seq_ref_enabled = bool(sequential_reference)
+
+        # 诊断日志：记录重新生成时的依次参考开关与关键参数
+        _task_total_pages = None
+        if task_id in self._task_states:
+            _task_total_pages = self._task_states[task_id].get("total_pages")
+        logger.info(
+            f"🔄 retry_single_image 诊断: page_index={page.get('index')}, "
+            f"seq_ref_input={sequential_reference}, seq_ref_from_task={bool(self._task_states.get(task_id, {}).get('sequential_reference', False)) if task_id in self._task_states else 'task_state_missing'}, "
+            f"user_images_len={len(user_images) if user_images else 0}, "
+            f"total_pages={_task_total_pages}, task_state_exists={task_id in self._task_states}"
+        )
+
         if seq_ref_enabled:
-            total_pages = None
-            if task_id in self._task_states:
-                total_pages = self._task_states[task_id].get("total_pages")
+            total_pages = _task_total_pages
             if not user_images or total_pages is None or len(user_images) != total_pages:
+                logger.warning(
+                    f"⚠️ 依次参考降级为关闭: 原因="
+                    f"{('user_images 为空' if not user_images else ('total_pages 为 None' if total_pages is None else f'张数不匹配 user_images={len(user_images)} vs total_pages={total_pages}'))}. "
+                    f"将按 page.index 取单张参考图兜底，避免把全部参考图喂给本页"
+                )
                 seq_ref_enabled = False
 
         # 调用方传入的优先，其次任务状态中的
@@ -744,6 +882,9 @@ class ImageService:
                 reference_image = compress_image(cover_data, max_size_kb=200)
 
         # 「依次参考」开启时：只把该页对应的那张用户图作为参考
+        # 降级兜底：即使 seq_ref_enabled 为 False（张数不匹配/状态丢失等），
+        # 也按 page.index 取单张参考图，避免把全部用户参考图都喂给本页导致
+        # 重新生成的图与相邻页"撞风格"
         effective_user_images = user_images
         if seq_ref_enabled and user_images:
             page_index = page.get("index", 0)
@@ -751,6 +892,16 @@ class ImageService:
                 effective_user_images = [user_images[page_index]]
             else:
                 logger.warning(f"依次参考：页面索引 {page_index} 越界，回退到全部参考图")
+        elif user_images:
+            # 降级兜底：按 page.index 取单张
+            page_index = page.get("index", 0)
+            if 0 <= page_index < len(user_images):
+                logger.info(f"↩️ 降级兜底: 按 page.index={page_index} 取单张参考图")
+                effective_user_images = [user_images[page_index]]
+            else:
+                logger.warning(
+                    f"降级兜底失败: page.index={page_index} 越界 (user_images_len={len(user_images)})，回退到全部参考图"
+                )
 
         index, success, filename, error = self._generate_single_image(
             page,

@@ -109,6 +109,23 @@
           </span>
         </div>
 
+        <!-- 高并发请求间隔秒数（仅高并发开启时显示） -->
+        <div class="form-group" v-if="formData.high_concurrency">
+          <label>请求间隔秒数</label>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            :value="formData.high_concurrency_interval ?? 0"
+            @input="updateField('high_concurrency_interval', Number(($event.target as HTMLInputElement).value) || 0)"
+            class="form-input number-input"
+            aria-label="高并发模式下每次请求间隔的秒数"
+          />
+          <span class="form-hint">
+            高并发模式下，每次提交图片生成任务前等待的秒数。设为 0 表示不间隔（默认）。若遇多张图生成结果雷同，可尝试设为 1-3 秒。
+          </span>
+        </div>
+
         <!-- 短 Prompt 模式 -->
         <div class="form-group">
           <label class="toggle-label">
@@ -169,6 +186,7 @@ interface FormData {
   model: string
   endpoint_type?: string
   high_concurrency?: boolean
+  high_concurrency_interval?: number
   short_prompt?: boolean
 }
 
@@ -196,7 +214,7 @@ const emit = defineEmits<{
 }>()
 
 // 更新表单字段
-function updateField(field: keyof FormData, value: string | boolean) {
+function updateField(field: keyof FormData, value: string | boolean | number) {
   emit('update:formData', {
     ...props.formData,
     [field]: value
@@ -340,6 +358,11 @@ const previewUrl = computed(() => {
   outline: none;
   border-color: var(--primary, #ff2442);
   box-shadow: 0 0 0 3px rgba(255, 36, 66, 0.1);
+}
+
+/* 数值输入框：窄宽度，适合秒数/数量等小数值 */
+.number-input {
+  width: 120px;
 }
 
 .form-select {
